@@ -82,7 +82,7 @@ void session_spawn(Session *s, const char *cmd)
 
     g_signal_connect(term, "child-exited", G_CALLBACK(on_child_exited), s);
     vte_terminal_spawn_async(VTE_TERMINAL(term), VTE_PTY_DEFAULT,
-        NULL, argv, NULL, G_SPAWN_DEFAULT,
+        NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
         NULL, NULL, NULL, -1, NULL, on_spawn_done, s);
 }
 
