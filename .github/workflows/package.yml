@@ -1,0 +1,98 @@
+name: Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build gcc pkg-config \
+            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+
+      - name: Build and install into AppDir
+        run: |
+          meson setup build --prefix=/usr
+          ninja -C build
+          DESTDIR="$PWD/AppDir" ninja -C build install
+
+      - name: Add fallback icon for AppImage
+        run: |
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp img/screenshot.png AppDir/usr/share/icons/hicolor/256x256/apps/gattn.png
+
+      - name: Build AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          DEPLOY_GTK_VERSION: "4"
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/org.mmxgn.gattn.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/gattn.png \
+            --plugin gtk \
+            --output appimage
+
+      - name: Rename AppImage with version tag
+        run: mv gattn*.AppImage gattn-${{ github.ref_name }}-x86_64.AppImage
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.AppImage"
+
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper meson ninja-build gcc \
+            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+
+      - name: Build .deb
+        run: |
+          cp -r packaging/debian debian
+          dpkg-buildpackage -b -us -uc
+          cp ../gattn_*.deb .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.deb"
+
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          dnf install -y meson ninja-build gcc rpm-build \
+            pkgconfig gtk4-devel libadwaita-devel vte291-gtk4-devel
+
+      - name: Build .rpm
+        run: |
+          VERSION=$(grep -oP "version\s*:\s*'\K[^']+" meson.build | head -1)
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS}
+          tar czf ~/rpmbuild/SOURCES/gattn-${VERSION}.tar.gz \
+            --transform "s,^\.,gattn-${VERSION}," \
+            --exclude='.git' .
+          cp packaging/gattn.spec ~/rpmbuild/SPECS/
+          rpmbuild -bb ~/rpmbuild/SPECS/gattn.spec
+          find ~/rpmbuild/RPMS -name '*.rpm' -exec cp {} . \;
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.rpm"
