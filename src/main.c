@@ -49,6 +49,10 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(provider);
 
+    Session *s = session_create(&sessions, "shell");
+    session_spawn(s, NULL);
+    state_detector_start(s);
+
     app.split = sidebar_new(&sessions);
 
     app.outer_stack = gtk_stack_new();
@@ -58,6 +62,8 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
 
     GtkWidget *toast_overlay = adw_toast_overlay_new();
     adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(toast_overlay), app.outer_stack);
+
+    notify_watch(s, ADW_TOAST_OVERLAY(toast_overlay), G_APPLICATION(app_obj));
 
     /* register actions */
     GSimpleAction *act = g_simple_action_new("toggle-grid", NULL);
@@ -74,11 +80,6 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
         adw_application_window_new(GTK_APPLICATION(app_obj)));
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
     adw_application_window_set_content(win, toast_overlay);
-
-    Session *s = session_create(&sessions, "shell");
-    session_spawn(s, NULL);
-    state_detector_start(s);
-    notify_watch(s, ADW_TOAST_OVERLAY(toast_overlay), G_APPLICATION(app_obj));
 
     gtk_window_present(GTK_WINDOW(win));
 }

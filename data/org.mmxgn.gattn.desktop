@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=gattn
+Comment=Attention hub for GNOME
+Exec=gattn
+Icon=utilities-terminal
+Type=Application
+Categories=GNOME;GTK;Utility;
+X-GNOME-UsesNotifications=true

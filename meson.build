@@ -6,6 +6,9 @@ deps = [
   dependency('vte-2.91-gtk4'),
 ]
 
+install_data('data/org.mmxgn.gattn.desktop',
+  install_dir: join_paths(get_option('datadir'), 'applications'))
+
 executable('gattn', [
   'src/main.c',
   'src/session.c',
