@@ -23,11 +23,10 @@ static struct {
     GtkWidget *split;
 } app;
 
-static gboolean on_toggle_grid(GtkWidget *widget, GVariant *args, gpointer data)
+static void on_toggle_grid(GSimpleAction *action, GVariant *param, gpointer data)
 {
-    (void)widget; (void)args; (void)data;
+    (void)action; (void)param; (void)data;
     grid_toggle(app.outer_stack, app.split, &sessions);
-    return TRUE;
 }
 
 static void on_activate(AdwApplication *app_obj, gpointer data)
@@ -53,22 +52,16 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
                                   GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_stack_add_named(GTK_STACK(app.outer_stack), app.split, "split");
 
+    /* register toggle-grid action on the application */
+    GSimpleAction *act = g_simple_action_new("toggle-grid", NULL);
+    g_signal_connect(act, "activate", G_CALLBACK(on_toggle_grid), NULL);
+    g_action_map_add_action(G_ACTION_MAP(app_obj), G_ACTION(act));
+    g_object_unref(act);
+
     AdwApplicationWindow *win = ADW_APPLICATION_WINDOW(
         adw_application_window_new(GTK_APPLICATION(app_obj)));
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
     adw_application_window_set_content(win, app.outer_stack);
-
-    /* Ctrl+G: toggle grid view */
-    GtkEventController *ctrl = gtk_shortcut_controller_new();
-    gtk_shortcut_controller_set_scope(GTK_SHORTCUT_CONTROLLER(ctrl),
-                                      GTK_SHORTCUT_SCOPE_GLOBAL);
-    gtk_shortcut_controller_add_shortcut(
-        GTK_SHORTCUT_CONTROLLER(ctrl),
-        gtk_shortcut_new(
-            gtk_keyval_trigger_new(GDK_KEY_g, GDK_CONTROL_MASK),
-            gtk_callback_action_new(on_toggle_grid, NULL, NULL)));
-    gtk_widget_add_controller(GTK_WIDGET(win), ctrl);
-
     gtk_window_present(GTK_WINDOW(win));
 }
 
@@ -78,6 +71,12 @@ int main(int argc, char *argv[])
     AdwApplication *a = adw_application_new("org.mmxgn.gattn",
                                             G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(a, "activate", G_CALLBACK(on_activate), NULL);
+
+    /* bind Ctrl+G to the action — must be set before g_application_run */
+    const char *accels[] = { "<Control>g", NULL };
+    gtk_application_set_accels_for_action(GTK_APPLICATION(a),
+                                          "app.toggle-grid", accels);
+
     int status = g_application_run(G_APPLICATION(a), argc, argv);
     g_object_unref(a);
     return status;
