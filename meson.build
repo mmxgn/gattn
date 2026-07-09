@@ -5,4 +5,4 @@ deps = [
   dependency('libadwaita-1'),
 ]
 
-executable('gattn', 'src/main.c', dependencies: deps)
+executable('gattn', ['src/main.c', 'src/session.c'], dependencies: deps)
