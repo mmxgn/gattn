@@ -1,6 +1,8 @@
 #include "sidebar.h"
 #include <adwaita.h>
 
+typedef struct { SidebarNewFn fn; gpointer data; } NewBtnCtx;
+
 static void on_row_selected(GtkListBox *lb, GtkListBoxRow *row, gpointer data)
 {
     (void)lb;
@@ -53,7 +55,15 @@ void sidebar_add_session(GtkWidget *split, Session *s)
         gtk_list_box_select_row(lb, GTK_LIST_BOX_ROW(row));
 }
 
-GtkWidget *sidebar_new(SessionList *sessions)
+static void on_new_clicked(GtkButton *btn, gpointer data)
+{
+    (void)btn;
+    GtkWidget  *split = data;
+    NewBtnCtx  *ctx   = g_object_get_data(G_OBJECT(split), "gattn-new-ctx");
+    if (ctx && ctx->fn) ctx->fn(split, ctx->data);
+}
+
+GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
 {
     GtkWidget *stack = gtk_stack_new();
 
@@ -74,15 +84,16 @@ GtkWidget *sidebar_new(SessionList *sessions)
                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), lb);
 
-    GtkWidget *sidebar_toolbar = adw_toolbar_view_new();
-    GtkWidget *sidebar_header  = adw_header_bar_new();
+    GtkWidget *sidebar_header = adw_header_bar_new();
     adw_header_bar_set_title_widget(ADW_HEADER_BAR(sidebar_header),
                                     gtk_label_new("gattn"));
+
+    GtkWidget *sidebar_toolbar = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(sidebar_toolbar), sidebar_header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(sidebar_toolbar), scroll);
     AdwNavigationPage *sidebar_page = adw_navigation_page_new(sidebar_toolbar, "Sessions");
 
-    /* split view */
+    /* split view — created before button so we can pass it as signal data */
     GtkWidget *split = adw_navigation_split_view_new();
     adw_navigation_split_view_set_sidebar(ADW_NAVIGATION_SPLIT_VIEW(split),
                                           ADW_NAVIGATION_PAGE(sidebar_page));
@@ -91,6 +102,17 @@ GtkWidget *sidebar_new(SessionList *sessions)
 
     g_object_set_data(G_OBJECT(split), "gattn-listbox", lb);
     g_object_set_data(G_OBJECT(split), "gattn-stack",   stack);
+
+    /* "+" button */
+    NewBtnCtx *ctx = g_new(NewBtnCtx, 1);
+    ctx->fn   = on_new;
+    ctx->data = on_new_data;
+    g_object_set_data_full(G_OBJECT(split), "gattn-new-ctx", ctx, g_free);
+
+    GtkWidget *btn = gtk_button_new_from_icon_name("list-add-symbolic");
+    gtk_widget_set_tooltip_text(btn, "New session");
+    g_signal_connect(btn, "clicked", G_CALLBACK(on_new_clicked), split);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(sidebar_header), btn);
 
     for (int i = 0; i < sessions->count; i++)
         sidebar_add_session(split, &sessions->items[i]);
