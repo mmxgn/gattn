@@ -12,10 +12,12 @@ Session *session_create(SessionList *list, const char *name)
     if (list->count >= 32)
         return NULL;
     Session *s = &list->items[list->count++];
-    s->id       = list->count;
-    s->state    = SESSION_IDLE;
-    s->terminal = NULL;
-    s->pid      = 0;
+    s->id           = list->count;
+    s->state        = SESSION_IDLE;
+    s->terminal     = NULL;
+    s->pid          = 0;
+    s->poll_id      = 0;
+    s->idle_timer_id = 0;
     strncpy(s->name, name, sizeof(s->name) - 1);
     s->name[sizeof(s->name) - 1] = '\0';
     return s;

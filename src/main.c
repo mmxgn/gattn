@@ -1,5 +1,6 @@
 #include <adwaita.h>
 #include "session.h"
+#include "state_detector.h"
 
 static SessionList sessions;
 
@@ -13,6 +14,7 @@ static void on_activate(AdwApplication *app, gpointer data)
 
     Session *s = session_create(&sessions, "shell");
     session_spawn(s, NULL);
+    state_detector_start(s);
     adw_application_window_set_content(win, s->terminal);
 
     gtk_window_present(GTK_WINDOW(win));

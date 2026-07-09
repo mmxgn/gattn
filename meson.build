@@ -6,4 +6,4 @@ deps = [
   dependency('vte-2.91-gtk4'),
 ]
 
-executable('gattn', ['src/main.c', 'src/session.c'], dependencies: deps)
+executable('gattn', ['src/main.c', 'src/session.c', 'src/state_detector.c'], dependencies: deps)

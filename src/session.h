@@ -14,6 +14,8 @@ typedef struct {
     SessionState state;
     GtkWidget *terminal; /* VteTerminal, wired in phase 2 */
     int        pid;
+    guint      poll_id;       /* hook file poll timer */
+    guint      idle_timer_id; /* heuristic silence timer */
 } Session;
 
 typedef struct {
