@@ -13,6 +13,7 @@ typedef struct {
     char       name[64];
     SessionState state;
     GtkWidget *terminal; /* VteTerminal, wired in phase 2 */
+    GtkWidget *dot;      /* sidebar state indicator, set by sidebar_add_session */
     int        pid;
     guint      poll_id;       /* hook file poll timer */
     guint      idle_timer_id; /* heuristic silence timer */

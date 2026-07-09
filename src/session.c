@@ -12,11 +12,12 @@ Session *session_create(SessionList *list, const char *name)
     if (list->count >= 32)
         return NULL;
     Session *s = &list->items[list->count++];
-    s->id           = list->count;
-    s->state        = SESSION_IDLE;
-    s->terminal     = NULL;
-    s->pid          = 0;
-    s->poll_id      = 0;
+    s->id            = list->count;
+    s->state         = SESSION_IDLE;
+    s->terminal      = NULL;
+    s->dot           = NULL;
+    s->pid           = 0;
+    s->poll_id       = 0;
     s->idle_timer_id = 0;
     strncpy(s->name, name, sizeof(s->name) - 1);
     s->name[sizeof(s->name) - 1] = '\0';
@@ -35,8 +36,19 @@ void session_destroy(SessionList *list, int id)
     }
 }
 
+static const char *const dot_classes[] = {
+    [SESSION_IDLE]        = "dot-idle",
+    [SESSION_WORKING]     = "dot-working",
+    [SESSION_NEEDS_INPUT] = "dot-needs-input",
+    [SESSION_DONE]        = "dot-done",
+};
+
 void session_set_state(Session *s, SessionState state)
 {
+    if (s->dot) {
+        gtk_widget_remove_css_class(s->dot, dot_classes[s->state]);
+        gtk_widget_add_css_class(s->dot, dot_classes[state]);
+    }
     s->state = state;
 }
 
