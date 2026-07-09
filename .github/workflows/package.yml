@@ -58,7 +58,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper meson ninja-build gcc \
+          sudo apt-get install -y build-essential debhelper meson ninja-build \
             libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
 
       - name: Build .deb
