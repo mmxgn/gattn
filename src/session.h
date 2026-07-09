@@ -8,7 +8,10 @@ typedef enum {
     SESSION_DONE,
 } SessionState;
 
-typedef struct {
+typedef struct Session Session;
+typedef void (*SessionStateChangedFn)(Session *s, gpointer data);
+
+struct Session {
     int        id;
     char       name[64];
     SessionState state;
@@ -17,11 +20,13 @@ typedef struct {
     int        pid;
     guint      poll_id;       /* hook file poll timer */
     guint      idle_timer_id; /* heuristic silence timer */
-} Session;
+    SessionStateChangedFn on_state_changed;
+    gpointer              on_state_changed_data;
+};
 
 typedef struct {
-    Session items[32];
-    int     count;
+    struct Session items[32];
+    int            count;
 } SessionList;
 
 void     session_list_init(SessionList *list);

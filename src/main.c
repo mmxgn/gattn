@@ -1,6 +1,7 @@
 #include <adwaita.h>
 #include "session.h"
 #include "state_detector.h"
+#include "notify.h"
 #include "ui/sidebar.h"
 #include "ui/grid.h"
 
@@ -29,6 +30,13 @@ static void on_toggle_grid(GSimpleAction *action, GVariant *param, gpointer data
     grid_toggle(app.outer_stack, app.split, &sessions);
 }
 
+static void on_raise(GSimpleAction *action, GVariant *param, gpointer data)
+{
+    (void)action; (void)param;
+    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(data));
+    if (win) gtk_window_present(win);
+}
+
 static void on_activate(AdwApplication *app_obj, gpointer data)
 {
     (void)data;
@@ -41,10 +49,6 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(provider);
 
-    Session *s = session_create(&sessions, "shell");
-    session_spawn(s, NULL);
-    state_detector_start(s);
-
     app.split = sidebar_new(&sessions);
 
     app.outer_stack = gtk_stack_new();
@@ -52,16 +56,30 @@ static void on_activate(AdwApplication *app_obj, gpointer data)
                                   GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_stack_add_named(GTK_STACK(app.outer_stack), app.split, "split");
 
-    /* register toggle-grid action on the application */
+    GtkWidget *toast_overlay = adw_toast_overlay_new();
+    adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(toast_overlay), app.outer_stack);
+
+    /* register actions */
     GSimpleAction *act = g_simple_action_new("toggle-grid", NULL);
     g_signal_connect(act, "activate", G_CALLBACK(on_toggle_grid), NULL);
     g_action_map_add_action(G_ACTION_MAP(app_obj), G_ACTION(act));
     g_object_unref(act);
 
+    GSimpleAction *raise_act = g_simple_action_new("raise", NULL);
+    g_signal_connect(raise_act, "activate", G_CALLBACK(on_raise), app_obj);
+    g_action_map_add_action(G_ACTION_MAP(app_obj), G_ACTION(raise_act));
+    g_object_unref(raise_act);
+
     AdwApplicationWindow *win = ADW_APPLICATION_WINDOW(
         adw_application_window_new(GTK_APPLICATION(app_obj)));
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
-    adw_application_window_set_content(win, app.outer_stack);
+    adw_application_window_set_content(win, toast_overlay);
+
+    Session *s = session_create(&sessions, "shell");
+    session_spawn(s, NULL);
+    state_detector_start(s);
+    notify_watch(s, ADW_TOAST_OVERLAY(toast_overlay), G_APPLICATION(app_obj));
+
     gtk_window_present(GTK_WINDOW(win));
 }
 

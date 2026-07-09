@@ -12,13 +12,15 @@ Session *session_create(SessionList *list, const char *name)
     if (list->count >= 32)
         return NULL;
     Session *s = &list->items[list->count++];
-    s->id            = list->count;
-    s->state         = SESSION_IDLE;
-    s->terminal      = NULL;
-    s->dot           = NULL;
-    s->pid           = 0;
-    s->poll_id       = 0;
-    s->idle_timer_id = 0;
+    s->id                   = list->count;
+    s->state                = SESSION_IDLE;
+    s->terminal             = NULL;
+    s->dot                  = NULL;
+    s->pid                  = 0;
+    s->poll_id              = 0;
+    s->idle_timer_id        = 0;
+    s->on_state_changed     = NULL;
+    s->on_state_changed_data = NULL;
     strncpy(s->name, name, sizeof(s->name) - 1);
     s->name[sizeof(s->name) - 1] = '\0';
     return s;
@@ -45,11 +47,14 @@ static const char *const dot_classes[] = {
 
 void session_set_state(Session *s, SessionState state)
 {
+    if (s->state == state) return;
     if (s->dot) {
         gtk_widget_remove_css_class(s->dot, dot_classes[s->state]);
         gtk_widget_add_css_class(s->dot, dot_classes[state]);
     }
     s->state = state;
+    if (s->on_state_changed)
+        s->on_state_changed(s, s->on_state_changed_data);
 }
 
 static void on_child_exited(VteTerminal *term, int status, gpointer data)

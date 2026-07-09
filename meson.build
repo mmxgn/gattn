@@ -10,6 +10,7 @@ executable('gattn', [
   'src/main.c',
   'src/session.c',
   'src/state_detector.c',
+  'src/notify.c',
   'src/ui/sidebar.c',
   'src/ui/grid.c',
 ], dependencies: deps)
