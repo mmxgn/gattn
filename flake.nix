@@ -15,6 +15,14 @@
           old.mesonFlags;
       });
     in {
+      packages.${system}.default = pkgs.stdenv.mkDerivation {
+        pname = "gattn";
+        version = "0.1.0";
+        src = pkgs.lib.cleanSource ./.;
+        nativeBuildInputs = with pkgs; [ meson ninja pkg-config ];
+        buildInputs = [ pkgs.gtk4 pkgs.libadwaita vte-gtk4 ];
+      };
+
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
           gcc

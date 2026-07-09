@@ -16,4 +16,4 @@ executable('gattn', [
   'src/notify.c',
   'src/ui/sidebar.c',
   'src/ui/grid.c',
-], dependencies: deps)
+], dependencies: deps, install: true)

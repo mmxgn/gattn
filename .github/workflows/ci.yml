@@ -1,0 +1,33 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix build
+
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          dnf install -y meson ninja-build gcc \
+            pkgconfig gtk4-devel libadwaita-devel vte291-gtk4-devel
+      - run: meson setup build && ninja -C build
+
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build gcc \
+            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+      - run: meson setup build && ninja -C build

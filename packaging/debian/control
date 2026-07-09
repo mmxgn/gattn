@@ -1,0 +1,13 @@
+Source: gattn
+Section: gnome
+Priority: optional
+Maintainer: mmxgn <etchourdakis@gmail.com>
+Build-Depends: debhelper-compat (= 13), meson, ninja-build, gcc,
+  libgtk-4-dev, libadwaita-1-dev, libvte-2.91-gtk4-dev
+
+Package: gattn
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Attention hub for GNOME
+ Aggregates multiple terminal sessions with color-coded state indicators
+ and a grid view. Inspired by attn.
