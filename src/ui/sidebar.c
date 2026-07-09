@@ -76,7 +76,7 @@ GtkWidget *sidebar_new(SessionList *sessions)
 
     GtkWidget *sidebar_toolbar = adw_toolbar_view_new();
     GtkWidget *sidebar_header  = adw_header_bar_new();
-    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(sidebar_header),
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(sidebar_header),
                                     gtk_label_new("gattn"));
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(sidebar_toolbar), sidebar_header);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(sidebar_toolbar), scroll);
