@@ -11,9 +11,11 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
 
-  - repo: https://github.com/pocc/pre-commit-clang-format
-    rev: v1.3.5
+  - repo: local
     hooks:
       - id: clang-format
-        args: [--style=file]
+        name: clang-format
+        language: system
+        entry: clang-format
+        args: [-i, --style=file]
         types: [c]
