@@ -5,29 +5,36 @@
 #include <signal.h>
 #include <string.h>
 
-typedef struct { SidebarNewFn fn; gpointer data; } NewBtnCtx;
+typedef struct {
+    SidebarNewFn fn;
+    gpointer     data;
+} NewBtnCtx;
 
 void sidebar_rename_session(Session *s, GtkWidget *parent_widget);
 
 /* ── diff dialog ── */
 
-
-void sidebar_show_diff(Session *s, GtkWidget *parent_widget)
+void
+sidebar_show_diff(Session *s, GtkWidget *parent_widget)
 {
     char cwd[512] = "";
     if (s->pid > 0) {
         char proc[64];
         g_snprintf(proc, sizeof(proc), "/proc/%d/cwd", s->pid);
         char *link = g_file_read_link(proc, NULL);
-        if (link) { g_strlcpy(cwd, link, sizeof(cwd)); g_free(link); }
+        if (link) {
+            g_strlcpy(cwd, link, sizeof(cwd));
+            g_free(link);
+        }
     }
-    if (!cwd[0] && s->cwd[0]) g_strlcpy(cwd, s->cwd, sizeof(cwd));
-    if (!cwd[0]) return;
+    if (!cwd[0] && s->cwd[0])
+        g_strlcpy(cwd, s->cwd, sizeof(cwd));
+    if (!cwd[0])
+        return;
 
     const char *argv[] = { "git", "diff", "HEAD", NULL };
-    char *out = NULL;
-    g_spawn_sync(cwd, (char **)argv, NULL, G_SPAWN_SEARCH_PATH,
-                 NULL, NULL, &out, NULL, NULL, NULL);
+    char       *out    = NULL;
+    g_spawn_sync(cwd, (char **)argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &out, NULL, NULL, NULL);
 
     AdwDialog *dialog = ADW_DIALOG(adw_dialog_new());
     adw_dialog_set_title(dialog, cwd);
@@ -39,14 +46,14 @@ void sidebar_show_diff(Session *s, GtkWidget *parent_widget)
 
     GtkTextBuffer *tbuf = gtk_text_buffer_new(NULL);
     /* paragraph-background colours the full line width, not just the characters */
-    gtk_text_buffer_create_tag(tbuf, "add",
-        "paragraph-background", "#1c3828", "foreground", "#7ee787", NULL);
-    gtk_text_buffer_create_tag(tbuf, "del",
-        "paragraph-background", "#3c1414", "foreground", "#f85149", NULL);
-    gtk_text_buffer_create_tag(tbuf, "hunk",
-        "paragraph-background", "#0d2045", "foreground", "#79c0ff", NULL);
-    gtk_text_buffer_create_tag(tbuf, "header",
-        "foreground", "#8b949e", "weight", PANGO_WEIGHT_BOLD, NULL);
+    gtk_text_buffer_create_tag(tbuf, "add", "paragraph-background", "#1c3828", "foreground",
+                               "#7ee787", NULL);
+    gtk_text_buffer_create_tag(tbuf, "del", "paragraph-background", "#3c1414", "foreground",
+                               "#f85149", NULL);
+    gtk_text_buffer_create_tag(tbuf, "hunk", "paragraph-background", "#0d2045", "foreground",
+                               "#79c0ff", NULL);
+    gtk_text_buffer_create_tag(tbuf, "header", "foreground", "#8b949e", "weight", PANGO_WEIGHT_BOLD,
+                               NULL);
 
     GtkTextIter it;
     gtk_text_buffer_get_end_iter(tbuf, &it);
@@ -56,19 +63,22 @@ void sidebar_show_diff(Session *s, GtkWidget *parent_widget)
         for (int i = 0; lines[i]; i++) {
             const char *ln  = lines[i];
             const char *tag = NULL;
-            if      (ln[0] == '+' && ln[1] != '+')        tag = "add";
-            else if (ln[0] == '-' && ln[1] != '-')        tag = "del";
-            else if (g_str_has_prefix(ln, "@@"))           tag = "hunk";
-            else if (g_str_has_prefix(ln, "diff ")  ||
-                     g_str_has_prefix(ln, "index ") ||
-                     g_str_has_prefix(ln, "--- ")   ||
-                     g_str_has_prefix(ln, "+++ "))         tag = "header";
+            if (ln[0] == '+' && ln[1] != '+')
+                tag = "add";
+            else if (ln[0] == '-' && ln[1] != '-')
+                tag = "del";
+            else if (g_str_has_prefix(ln, "@@"))
+                tag = "hunk";
+            else if (g_str_has_prefix(ln, "diff ") || g_str_has_prefix(ln, "index ")
+                     || g_str_has_prefix(ln, "--- ") || g_str_has_prefix(ln, "+++ "))
+                tag = "header";
 
             GtkTextIter start = it;
-            char *nl = g_strdup_printf("%s\n", ln);
+            char       *nl    = g_strdup_printf("%s\n", ln);
             gtk_text_buffer_insert(tbuf, &it, nl, -1);
             g_free(nl);
-            if (tag) gtk_text_buffer_apply_tag_by_name(tbuf, tag, &start, &it);
+            if (tag)
+                gtk_text_buffer_apply_tag_by_name(tbuf, tag, &start, &it);
         }
         g_strfreev(lines);
     } else {
@@ -99,15 +109,18 @@ void sidebar_show_diff(Session *s, GtkWidget *parent_widget)
 
 /* ── rename ── */
 
-typedef struct { Session *s; GtkWidget *entry; } RenameCtx;
+typedef struct {
+    Session   *s;
+    GtkWidget *entry;
+} RenameCtx;
 
-static void on_rename_response(AdwAlertDialog *d, const char *resp, gpointer data)
+static void
+on_rename_response(AdwAlertDialog *d, const char *resp, gpointer data)
 {
     (void)d;
     RenameCtx *rc = data;
     if (g_strcmp0(resp, "rename") == 0) {
-        const char *txt = gtk_entry_buffer_get_text(
-            gtk_entry_get_buffer(GTK_ENTRY(rc->entry)));
+        const char *txt = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(rc->entry)));
         if (txt && *txt) {
             g_strlcpy(rc->s->name, txt, sizeof(rc->s->name));
             if (rc->s->name_label)
@@ -117,7 +130,8 @@ static void on_rename_response(AdwAlertDialog *d, const char *resp, gpointer dat
     g_free(rc);
 }
 
-void sidebar_rename_session(Session *s, GtkWidget *parent_widget)
+void
+sidebar_rename_session(Session *s, GtkWidget *parent_widget)
 {
     AdwAlertDialog *dlg = ADW_ALERT_DIALOG(adw_alert_dialog_new("Rename session", NULL));
     adw_alert_dialog_add_responses(dlg, "cancel", "Cancel", "rename", "Rename", NULL);
@@ -131,8 +145,8 @@ void sidebar_rename_session(Session *s, GtkWidget *parent_widget)
     adw_alert_dialog_set_extra_child(dlg, entry);
 
     RenameCtx *rctx = g_new(RenameCtx, 1);
-    rctx->s     = s;
-    rctx->entry = entry;
+    rctx->s         = s;
+    rctx->entry     = entry;
     g_signal_connect(dlg, "response", G_CALLBACK(on_rename_response), rctx);
 
     GtkRoot *root = gtk_widget_get_root(parent_widget);
@@ -142,45 +156,51 @@ void sidebar_rename_session(Session *s, GtkWidget *parent_widget)
 
 /* ── right-click context menu ── */
 
-static void on_open_folder_clicked(GtkButton *btn, gpointer data)
+static void
+on_open_folder_clicked(GtkButton *btn, gpointer data)
 {
     g_app_info_launch_default_for_uri((const char *)data, NULL, NULL);
     GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
-    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
 }
 
-static void on_diff_menu_clicked(GtkButton *btn, gpointer data)
+static void
+on_diff_menu_clicked(GtkButton *btn, gpointer data)
 {
-    Session *s = data;
+    Session   *s   = data;
     GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
-    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
     sidebar_show_diff(s, GTK_WIDGET(btn));
 }
 
-static void on_rename_menu_clicked(GtkButton *btn, gpointer data)
+static void
+on_rename_menu_clicked(GtkButton *btn, gpointer data)
 {
-    Session *s = data;
+    Session   *s   = data;
     GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
-    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
     sidebar_rename_session(s, GTK_WIDGET(btn));
 }
 
-static void on_right_click(GtkGestureClick *gesture, int n_press, double x, double y,
-                            gpointer data)
+static void
+on_right_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
 {
     (void)n_press;
     Session   *s   = data;
     GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
 
     const char *cwd = s->cwd[0] ? s->cwd : g_get_home_dir();
-    char uri[560];
+    char        uri[560];
     g_snprintf(uri, sizeof(uri), "file://%s", cwd);
 
     GtkWidget *folder_btn = gtk_button_new_with_label("Open Folder");
     gtk_widget_add_css_class(folder_btn, "flat");
     gtk_widget_set_halign(folder_btn, GTK_ALIGN_FILL);
-    g_signal_connect_data(folder_btn, "clicked", G_CALLBACK(on_open_folder_clicked),
-                          g_strdup(uri), (GClosureNotify)g_free, 0);
+    g_signal_connect_data(folder_btn, "clicked", G_CALLBACK(on_open_folder_clicked), g_strdup(uri),
+                          (GClosureNotify)g_free, 0);
 
     GtkWidget *diff_btn = gtk_button_new_with_label("Show Diff");
     gtk_widget_add_css_class(diff_btn, "flat");
@@ -210,32 +230,36 @@ static void on_right_click(GtkGestureClick *gesture, int n_press, double x, doub
 
 /* ── inline row button callbacks ── */
 
-static void on_folder_btn_clicked(GtkButton *btn, gpointer data)
+static void
+on_folder_btn_clicked(GtkButton *btn, gpointer data)
 {
     (void)btn;
-    Session *s = data;
+    Session    *s   = data;
     const char *cwd = s->cwd[0] ? s->cwd : g_get_home_dir();
-    char uri[560];
+    char        uri[560];
     g_snprintf(uri, sizeof(uri), "file://%s", cwd);
     g_app_info_launch_default_for_uri(uri, NULL, NULL);
 }
 
-static void on_diff_btn_clicked(GtkButton *btn, gpointer data)
+static void
+on_diff_btn_clicked(GtkButton *btn, gpointer data)
 {
     sidebar_show_diff((Session *)data, GTK_WIDGET(btn));
 }
 
-static void on_close_btn_clicked(GtkButton *btn, gpointer data)
+static void
+on_close_btn_clicked(GtkButton *btn, gpointer data)
 {
     (void)btn;
     Session *s = data;
-    if (s->pid > 0) kill(s->pid, SIGHUP);
+    if (s->pid > 0)
+        kill(s->pid, SIGHUP);
 }
 
 /* ── row builder ── */
 
-static GtkWidget *make_icon_btn(const char *icon, const char *tooltip,
-                                 GCallback cb, gpointer data)
+static GtkWidget *
+make_icon_btn(const char *icon, const char *tooltip, GCallback cb, gpointer data)
 {
     GtkWidget *btn = gtk_button_new_from_icon_name(icon);
     gtk_widget_add_css_class(btn, "flat");
@@ -245,19 +269,23 @@ static GtkWidget *make_icon_btn(const char *icon, const char *tooltip,
     return btn;
 }
 
-static void on_row_selected(GtkListBox *lb, GtkListBoxRow *row, gpointer data)
+static void
+on_row_selected(GtkListBox *lb, GtkListBoxRow *row, gpointer data)
 {
     (void)lb;
-    if (!row) return;
+    if (!row)
+        return;
     Session *s = g_object_get_data(G_OBJECT(row), "gattn-session");
-    if (!s) return;
-    int display_id = (s->parent_id != 0) ? s->parent_id : s->id;
+    if (!s)
+        return;
+    int  display_id = (s->parent_id != 0) ? s->parent_id : s->id;
     char name[32];
     g_snprintf(name, sizeof(name), "session-%d", display_id);
     gtk_stack_set_visible_child_name(GTK_STACK(data), name);
 }
 
-static GtkWidget *make_row(Session *s)
+static GtkWidget *
+make_row(Session *s)
 {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_margin_start(box, s->parent_id ? 24 : 8);
@@ -292,15 +320,12 @@ static GtkWidget *make_row(Session *s)
 
     gtk_box_append(GTK_BOX(box), dot);
     gtk_box_append(GTK_BOX(box), labels);
-    gtk_box_append(GTK_BOX(box),
-                   make_icon_btn("folder-open-symbolic", "Open folder",
-                                 G_CALLBACK(on_folder_btn_clicked), s));
-    gtk_box_append(GTK_BOX(box),
-                   make_icon_btn("git-symbolic", "Show diff (Ctrl+Shift+D)",
-                                 G_CALLBACK(on_diff_btn_clicked), s));
-    gtk_box_append(GTK_BOX(box),
-                   make_icon_btn("window-close-symbolic", "Close session (Ctrl+W)",
-                                 G_CALLBACK(on_close_btn_clicked), s));
+    gtk_box_append(GTK_BOX(box), make_icon_btn("folder-open-symbolic", "Open folder",
+                                               G_CALLBACK(on_folder_btn_clicked), s));
+    gtk_box_append(GTK_BOX(box), make_icon_btn("git-symbolic", "Show diff (Ctrl+Shift+D)",
+                                               G_CALLBACK(on_diff_btn_clicked), s));
+    gtk_box_append(GTK_BOX(box), make_icon_btn("window-close-symbolic", "Close session (Ctrl+W)",
+                                               G_CALLBACK(on_close_btn_clicked), s));
 
     GtkWidget *row = gtk_list_box_row_new();
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
@@ -314,7 +339,8 @@ static GtkWidget *make_row(Session *s)
     return row;
 }
 
-void sidebar_add_session(GtkWidget *split, Session *s)
+void
+sidebar_add_session(GtkWidget *split, Session *s)
 {
     GtkListBox *lb    = g_object_get_data(G_OBJECT(split), "gattn-listbox");
     GtkStack   *stack = g_object_get_data(G_OBJECT(split), "gattn-stack");
@@ -334,16 +360,15 @@ void sidebar_add_session(GtkWidget *split, Session *s)
 
 /* ── shortcut bar ── */
 
-static GtkWidget *make_shortcut_bar(void)
+static GtkWidget *
+make_shortcut_bar(void)
 {
-    static const struct { const char *key; const char *action; } hints[] = {
-        { "^N",    "New"        },
-        { "^W",    "Close"      },
-        { "^↓/⇥",  "Next"       },
-        { "^↑/⇧⇥", "Prev"      },
-        { "^⇧A",   "Unattended" },
-        { "^G",    "Grid"       },
-        { "^⇧D",   "Diff"       },
+    static const struct {
+        const char *key;
+        const char *action;
+    } hints[] = {
+        { "^N", "New" },         { "^W", "Close" }, { "^↓/⇥", "Next" }, { "^↑/⇧⇥", "Prev" },
+        { "^⇧A", "Unattended" }, { "^G", "Grid" },  { "^⇧D", "Diff" },
     };
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
@@ -370,24 +395,31 @@ static GtkWidget *make_shortcut_bar(void)
     return grid;
 }
 
-void sidebar_remove_session(GtkWidget *split, int id)
+void
+sidebar_remove_session(GtkWidget *split, int id)
 {
     GtkListBox *lb    = g_object_get_data(G_OBJECT(split), "gattn-listbox");
     GtkStack   *stack = g_object_get_data(G_OBJECT(split), "gattn-stack");
 
     GtkListBoxRow *target = NULL;
-    for (int i = 0; ; i++) {
+    for (int i = 0;; i++) {
         GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, i);
-        if (!row) break;
+        if (!row)
+            break;
         Session *s = g_object_get_data(G_OBJECT(row), "gattn-session");
-        if (s && s->id == id) { target = row; break; }
+        if (s && s->id == id) {
+            target = row;
+            break;
+        }
     }
-    if (!target) return;
+    if (!target)
+        return;
 
     if (gtk_list_box_row_is_selected(target)) {
-        int idx  = gtk_list_box_row_get_index(target);
+        int            idx  = gtk_list_box_row_get_index(target);
         GtkListBoxRow *next = gtk_list_box_get_row_at_index(lb, idx + 1);
-        if (!next) next = gtk_list_box_get_row_at_index(lb, idx - 1);
+        if (!next)
+            next = gtk_list_box_get_row_at_index(lb, idx - 1);
         gtk_list_box_select_row(lb, next);
     }
 
@@ -396,18 +428,22 @@ void sidebar_remove_session(GtkWidget *split, int id)
     char name[32];
     g_snprintf(name, sizeof(name), "session-%d", id);
     GtkWidget *page = gtk_stack_get_child_by_name(GTK_STACK(stack), name);
-    if (page) gtk_stack_remove(GTK_STACK(stack), page);
+    if (page)
+        gtk_stack_remove(GTK_STACK(stack), page);
 }
 
-static void on_new_clicked(GtkButton *btn, gpointer data)
+static void
+on_new_clicked(GtkButton *btn, gpointer data)
 {
     (void)btn;
-    GtkWidget  *split = data;
-    NewBtnCtx  *ctx   = g_object_get_data(G_OBJECT(split), "gattn-new-ctx");
-    if (ctx && ctx->fn) ctx->fn(split, ctx->data);
+    GtkWidget *split = data;
+    NewBtnCtx *ctx   = g_object_get_data(G_OBJECT(split), "gattn-new-ctx");
+    if (ctx && ctx->fn)
+        ctx->fn(split, ctx->data);
 }
 
-GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
+GtkWidget *
+sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
 {
     GtkWidget *stack = gtk_stack_new();
 
@@ -422,13 +458,12 @@ GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_n
     g_signal_connect(lb, "row-selected", G_CALLBACK(on_row_selected), stack);
 
     GtkWidget *scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
-                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER,
+                                   GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), lb);
 
     GtkWidget *sidebar_header = adw_header_bar_new();
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(sidebar_header),
-                                    gtk_label_new("gattn"));
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(sidebar_header), gtk_label_new("gattn"));
 
     GtkWidget *sidebar_toolbar = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(sidebar_toolbar), sidebar_header);
@@ -449,13 +484,13 @@ GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_n
     adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(split),
                                           ADW_NAVIGATION_PAGE(content_page));
 
-    g_object_set_data(G_OBJECT(split), "gattn-listbox",        lb);
-    g_object_set_data(G_OBJECT(split), "gattn-stack",          stack);
+    g_object_set_data(G_OBJECT(split), "gattn-listbox", lb);
+    g_object_set_data(G_OBJECT(split), "gattn-stack", stack);
     g_object_set_data(G_OBJECT(split), "gattn-content-header", content_header);
 
     NewBtnCtx *ctx = g_new(NewBtnCtx, 1);
-    ctx->fn   = on_new;
-    ctx->data = on_new_data;
+    ctx->fn        = on_new;
+    ctx->data      = on_new_data;
     g_object_set_data_full(G_OBJECT(split), "gattn-new-ctx", ctx, g_free);
 
     GtkWidget *btn = gtk_button_new_from_icon_name("list-add-symbolic");
@@ -465,7 +500,7 @@ GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_n
 
     GMenu *menu = g_menu_new();
     g_menu_append(menu, "Preferences", "app.preferences");
-    g_menu_append(menu, "About gattn",  "app.about");
+    g_menu_append(menu, "About gattn", "app.about");
     GtkWidget *hamburger = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(hamburger), "open-menu-symbolic");
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(hamburger), G_MENU_MODEL(menu));

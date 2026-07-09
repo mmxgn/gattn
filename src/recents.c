@@ -2,14 +2,16 @@
 #include <glib.h>
 #include <string.h>
 
-static char *recents_file(void)
+static char *
+recents_file(void)
 {
     return g_build_filename(g_get_user_data_dir(), "gattn", "recent-dirs.txt", NULL);
 }
 
-char **recents_list(void)
+char **
+recents_list(void)
 {
-    char *path = recents_file();
+    char *path     = recents_file();
     char *contents = NULL;
     if (!g_file_get_contents(path, &contents, NULL, NULL)) {
         g_free(path);
@@ -18,7 +20,7 @@ char **recents_list(void)
     g_free(path);
 
     g_strstrip(contents);
-    char    **lines = g_strsplit(contents, "\n", -1);
+    char **lines = g_strsplit(contents, "\n", -1);
     g_free(contents);
 
     GPtrArray *out = g_ptr_array_new();
@@ -30,7 +32,8 @@ char **recents_list(void)
     return (char **)g_ptr_array_free(out, FALSE);
 }
 
-void recents_add(const char *path)
+void
+recents_add(const char *path)
 {
     char **old  = recents_list();
     char  *file = recents_file();

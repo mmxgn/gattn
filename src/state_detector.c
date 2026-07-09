@@ -1,17 +1,19 @@
 #include "state_detector.h"
-#include <vte/vte.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <glib/gfileutils.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <vte/vte.h>
 
 /* Hook path: any process can write "working\n", "needs_input\n", etc. here */
-static void hook_path(Session *s, char *buf, gsize len)
+static void
+hook_path(Session *s, char *buf, gsize len)
 {
     g_snprintf(buf, len, "%s/gattn/%d.state", g_get_user_runtime_dir(), s->pid);
 }
 
-static gboolean poll_hook_file(gpointer data)
+static gboolean
+poll_hook_file(gpointer data)
 {
     Session *s = data;
     if (s->pid == 0)
@@ -24,54 +26,63 @@ static gboolean poll_hook_file(gpointer data)
     if (!f)
         return G_SOURCE_CONTINUE;
 
-    char state[32] = {0};
+    char state[32] = { 0 };
     if (fgets(state, sizeof(state), f))
         state[strcspn(state, "\n")] = '\0';
     fclose(f);
 
-    if      (!strcmp(state, "working"))     session_set_state(s, SESSION_WORKING);
-    else if (!strcmp(state, "needs_input")) session_set_state(s, SESSION_NEEDS_INPUT);
-    else if (!strcmp(state, "idle"))        session_set_state(s, SESSION_IDLE);
-    else if (!strcmp(state, "done"))        session_set_state(s, SESSION_DONE);
+    if (!strcmp(state, "working"))
+        session_set_state(s, SESSION_WORKING);
+    else if (!strcmp(state, "needs_input"))
+        session_set_state(s, SESSION_NEEDS_INPUT);
+    else if (!strcmp(state, "idle"))
+        session_set_state(s, SESSION_IDLE);
+    else if (!strcmp(state, "done"))
+        session_set_state(s, SESSION_DONE);
 
     return G_SOURCE_CONTINUE;
 }
 
-static gboolean on_silence(gpointer data)
+static gboolean
+on_silence(gpointer data)
 {
-    Session *s = data;
+    Session *s       = data;
     s->idle_timer_id = 0;
     if (s->state == SESSION_WORKING)
         session_set_state(s, SESSION_NEEDS_INPUT);
     return G_SOURCE_REMOVE;
 }
 
-static gboolean poll_cwd(gpointer data)
+static gboolean
+poll_cwd(gpointer data)
 {
     Session *s = data;
-    if (s->pid == 0) return G_SOURCE_CONTINUE;
+    if (s->pid == 0)
+        return G_SOURCE_CONTINUE;
 
     char path[64];
     g_snprintf(path, sizeof(path), "/proc/%d/cwd", s->pid);
     char *link = g_file_read_link(path, NULL);
-    if (!link) return G_SOURCE_CONTINUE;
+    if (!link)
+        return G_SOURCE_CONTINUE;
 
     if (strcmp(link, s->cwd) != 0) {
         g_strlcpy(s->cwd, link, sizeof(s->cwd));
         if (s->cwd_label) {
             const char *base = strrchr(s->cwd, '/');
-            gtk_label_set_text(GTK_LABEL(s->cwd_label),
-                               (base && base[1]) ? base + 1 : s->cwd);
+            gtk_label_set_text(GTK_LABEL(s->cwd_label), (base && base[1]) ? base + 1 : s->cwd);
         }
     }
     g_free(link);
     return G_SOURCE_CONTINUE;
 }
 
-static gboolean poll_children(gpointer data)
+static gboolean
+poll_children(gpointer data)
 {
     Session *s = data;
-    if (s->pid == 0) return G_SOURCE_CONTINUE;
+    if (s->pid == 0)
+        return G_SOURCE_CONTINUE;
 
     /* collect current child PIDs from /proc/<pid>/task/<tid>/children */
     int  cur[32], cur_count = 0;
@@ -85,15 +96,19 @@ static gboolean poll_children(gpointer data)
             char path[128];
             g_snprintf(path, sizeof(path), "%s/%s/children", task_dir, tid);
             char *buf = NULL;
-            if (!g_file_get_contents(path, &buf, NULL, NULL)) continue;
+            if (!g_file_get_contents(path, &buf, NULL, NULL))
+                continue;
             char *p = buf;
             while (*p && cur_count < 32) {
                 char *end;
                 long  pid = strtol(p, &end, 10);
-                if (end == p) break;
-                if (pid > 0) cur[cur_count++] = (int)pid;
+                if (end == p)
+                    break;
+                if (pid > 0)
+                    cur[cur_count++] = (int)pid;
                 p = end;
-                while (*p == ' ' || *p == '\n') p++;
+                while (*p == ' ' || *p == '\n')
+                    p++;
             }
             g_free(buf);
         }
@@ -105,7 +120,10 @@ static gboolean poll_children(gpointer data)
         for (int i = 0; i < cur_count; i++) {
             gboolean known = FALSE;
             for (int j = 0; j < s->seen_child_count; j++)
-                if (s->seen_child_pids[j] == cur[i]) { known = TRUE; break; }
+                if (s->seen_child_pids[j] == cur[i]) {
+                    known = TRUE;
+                    break;
+                }
             if (!known)
                 s->on_child_spawned(cur[i], s->id, s->on_child_spawned_data);
         }
@@ -116,7 +134,10 @@ static gboolean poll_children(gpointer data)
         for (int j = 0; j < s->seen_child_count; j++) {
             gboolean still_here = FALSE;
             for (int i = 0; i < cur_count; i++)
-                if (cur[i] == s->seen_child_pids[j]) { still_here = TRUE; break; }
+                if (cur[i] == s->seen_child_pids[j]) {
+                    still_here = TRUE;
+                    break;
+                }
             if (!still_here)
                 s->on_child_exited(s->seen_child_pids[j], s->id, s->on_child_exited_data);
         }
@@ -129,15 +150,19 @@ static gboolean poll_children(gpointer data)
     return G_SOURCE_CONTINUE;
 }
 
-static void on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
+static void
+on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
 {
-    (void)term; (void)text; (void)len;
+    (void)term;
+    (void)text;
+    (void)len;
     Session *s = data;
     if (s->state == SESSION_NEEDS_INPUT)
         session_set_state(s, SESSION_WORKING);
 }
 
-static void on_contents_changed(VteTerminal *term, gpointer data)
+static void
+on_contents_changed(VteTerminal *term, gpointer data)
 {
     (void)term;
     Session *s = data;
@@ -147,25 +172,37 @@ static void on_contents_changed(VteTerminal *term, gpointer data)
     s->idle_timer_id = g_timeout_add_seconds(5, on_silence, s);
 }
 
-void state_detector_start(Session *s)
+void
+state_detector_start(Session *s)
 {
     char dir[480];
     g_snprintf(dir, sizeof(dir), "%s/gattn", g_get_user_runtime_dir());
     g_mkdir_with_parents(dir, 0700);
 
-    g_signal_connect(s->terminal, "commit",
-                     G_CALLBACK(on_user_input), s);
-    g_signal_connect(s->terminal, "contents-changed",
-                     G_CALLBACK(on_contents_changed), s);
+    g_signal_connect(s->terminal, "commit", G_CALLBACK(on_user_input), s);
+    g_signal_connect(s->terminal, "contents-changed", G_CALLBACK(on_contents_changed), s);
     s->poll_id       = g_timeout_add_seconds(1, poll_hook_file, s);
     s->cwd_timer_id  = g_timeout_add_seconds(3, poll_cwd, s);
     s->child_poll_id = g_timeout_add_seconds(2, poll_children, s);
 }
 
-void state_detector_stop(Session *s)
+void
+state_detector_stop(Session *s)
 {
-    if (s->poll_id)       { g_source_remove(s->poll_id);       s->poll_id = 0; }
-    if (s->idle_timer_id) { g_source_remove(s->idle_timer_id); s->idle_timer_id = 0; }
-    if (s->cwd_timer_id)  { g_source_remove(s->cwd_timer_id);  s->cwd_timer_id = 0; }
-    if (s->child_poll_id) { g_source_remove(s->child_poll_id); s->child_poll_id = 0; }
+    if (s->poll_id) {
+        g_source_remove(s->poll_id);
+        s->poll_id = 0;
+    }
+    if (s->idle_timer_id) {
+        g_source_remove(s->idle_timer_id);
+        s->idle_timer_id = 0;
+    }
+    if (s->cwd_timer_id) {
+        g_source_remove(s->cwd_timer_id);
+        s->cwd_timer_id = 0;
+    }
+    if (s->child_poll_id) {
+        g_source_remove(s->child_poll_id);
+        s->child_poll_id = 0;
+    }
 }

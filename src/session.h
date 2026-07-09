@@ -13,28 +13,28 @@ typedef void (*SessionStateChangedFn)(Session *s, gpointer data);
 typedef void (*SessionChildSpawnedFn)(int child_pid, int parent_id, gpointer data);
 
 struct Session {
-    int        id;
-    int        parent_id; /* 0 = top-level */
-    char       name[64];
-    char       cwd[256];
-    SessionState state;
-    GtkWidget *terminal;   /* VteTerminal */
-    GtkWidget *dot;        /* sidebar state dot */
-    GtkWidget *name_label; /* sidebar name label */
-    GtkWidget *cwd_label;  /* sidebar cwd label */
-    int        pid;
-    guint      poll_id;
-    guint      idle_timer_id;
-    guint      cwd_timer_id;
-    guint      child_poll_id;
-    int  seen_child_pids[32];
-    int  seen_child_count;
-    SessionStateChangedFn  on_state_changed;
-    gpointer               on_state_changed_data;
-    SessionChildSpawnedFn  on_child_spawned;
-    gpointer               on_child_spawned_data;
-    SessionChildSpawnedFn  on_child_exited;
-    gpointer               on_child_exited_data;
+    int                   id;
+    int                   parent_id; /* 0 = top-level */
+    char                  name[64];
+    char                  cwd[256];
+    SessionState          state;
+    GtkWidget            *terminal;   /* VteTerminal */
+    GtkWidget            *dot;        /* sidebar state dot */
+    GtkWidget            *name_label; /* sidebar name label */
+    GtkWidget            *cwd_label;  /* sidebar cwd label */
+    int                   pid;
+    guint                 poll_id;
+    guint                 idle_timer_id;
+    guint                 cwd_timer_id;
+    guint                 child_poll_id;
+    int                   seen_child_pids[32];
+    int                   seen_child_count;
+    SessionStateChangedFn on_state_changed;
+    gpointer              on_state_changed_data;
+    SessionChildSpawnedFn on_child_spawned;
+    gpointer              on_child_spawned_data;
+    SessionChildSpawnedFn on_child_exited;
+    gpointer              on_child_exited_data;
 };
 
 typedef struct {

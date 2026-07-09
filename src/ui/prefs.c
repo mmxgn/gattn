@@ -9,7 +9,8 @@ typedef struct {
     GtkColorButton *bg_btn;
 } PrefsCtx;
 
-static void save_and_notify(PrefsCtx *ctx)
+static void
+save_and_notify(PrefsCtx *ctx)
 {
     GattnPrefs p;
 
@@ -20,28 +21,32 @@ static void save_and_notify(PrefsCtx *ctx)
     GdkRGBA fg, bg;
     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(ctx->fg_btn), &fg);
     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(ctx->bg_btn), &bg);
-    g_snprintf(p.fg, sizeof(p.fg), "#%02x%02x%02x",
-               (int)(fg.red * 255), (int)(fg.green * 255), (int)(fg.blue * 255));
-    g_snprintf(p.bg, sizeof(p.bg), "#%02x%02x%02x",
-               (int)(bg.red * 255), (int)(bg.green * 255), (int)(bg.blue * 255));
+    g_snprintf(p.fg, sizeof(p.fg), "#%02x%02x%02x", (int)(fg.red * 255), (int)(fg.green * 255),
+               (int)(fg.blue * 255));
+    g_snprintf(p.bg, sizeof(p.bg), "#%02x%02x%02x", (int)(bg.red * 255), (int)(bg.green * 255),
+               (int)(bg.blue * 255));
 
     prefs_save(&p);
-    if (ctx->on_changed) ctx->on_changed(ctx->data);
+    if (ctx->on_changed)
+        ctx->on_changed(ctx->data);
 }
 
-static void on_font_set(GtkFontButton *b, gpointer data)
+static void
+on_font_set(GtkFontButton *b, gpointer data)
 {
     (void)b;
     save_and_notify((PrefsCtx *)data);
 }
 
-static void on_color_set(GtkColorButton *b, gpointer data)
+static void
+on_color_set(GtkColorButton *b, gpointer data)
 {
     (void)b;
     save_and_notify((PrefsCtx *)data);
 }
 
-void prefs_dialog_show(GtkWidget *parent, PrefsChangedFn on_changed, gpointer data)
+void
+prefs_dialog_show(GtkWidget *parent, PrefsChangedFn on_changed, gpointer data)
 {
     GattnPrefs p = prefs_load();
 
@@ -61,16 +66,16 @@ void prefs_dialog_show(GtkWidget *parent, PrefsChangedFn on_changed, gpointer da
     adw_action_row_set_activatable_widget(font_row, font_btn);
 
     /* Colors */
-    GdkRGBA fg = {1,1,1,1}, bg = {0,0,0,1};
+    GdkRGBA fg = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 1 };
     gdk_rgba_parse(&fg, p.fg);
     gdk_rgba_parse(&bg, p.bg);
 
     GtkWidget *fg_btn = gtk_color_button_new_with_rgba(&fg);
-    ctx->fg_btn = GTK_COLOR_BUTTON(fg_btn);
+    ctx->fg_btn       = GTK_COLOR_BUTTON(fg_btn);
     g_signal_connect(fg_btn, "color-set", G_CALLBACK(on_color_set), ctx);
 
     GtkWidget *bg_btn = gtk_color_button_new_with_rgba(&bg);
-    ctx->bg_btn = GTK_COLOR_BUTTON(bg_btn);
+    ctx->bg_btn       = GTK_COLOR_BUTTON(bg_btn);
     g_signal_connect(bg_btn, "color-set", G_CALLBACK(on_color_set), ctx);
 
     /* Colour rows */
@@ -99,7 +104,8 @@ void prefs_dialog_show(GtkWidget *parent, PrefsChangedFn on_changed, gpointer da
     gtk_window_set_default_size(GTK_WINDOW(win), 480, 300);
 
     GtkRoot *root = gtk_widget_get_root(parent);
-    if (root) gtk_window_set_transient_for(GTK_WINDOW(win), GTK_WINDOW(root));
+    if (root)
+        gtk_window_set_transient_for(GTK_WINDOW(win), GTK_WINDOW(root));
     gtk_window_set_modal(GTK_WINDOW(win), TRUE);
 
     g_object_set_data_full(G_OBJECT(win), "prefs-ctx", ctx, g_free);
