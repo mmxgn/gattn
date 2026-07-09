@@ -34,20 +34,15 @@ static void dbus_notify(const char *body)
 static void on_state_changed(Session *s, gpointer data)
 {
     if (s->state != SESSION_NEEDS_INPUT) return;
+    if (strcmp(s->name, "claude") != 0) return; /* color dot handles shell attention */
 
     NotifyCtx *ctx = data;
+    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(ctx->gapp));
+    if (win && gtk_window_is_active(win)) return; /* focused: color dot is enough */
+
     char msg[128];
     g_snprintf(msg, sizeof(msg), "%s needs input", s->name);
-
-    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(ctx->gapp));
-
-    if (win && gtk_window_is_active(win)) {
-        AdwToast *toast = adw_toast_new(msg);
-        adw_toast_set_timeout(toast, 3);
-        adw_toast_overlay_add_toast(ctx->overlay, toast);
-    } else {
-        dbus_notify(msg);
-    }
+    dbus_notify(msg);
 }
 
 void notify_watch(Session *s, AdwToastOverlay *overlay, GApplication *gapp)

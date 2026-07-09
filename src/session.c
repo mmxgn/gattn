@@ -12,15 +12,25 @@ Session *session_create(SessionList *list, const char *name)
     if (list->count >= 32)
         return NULL;
     Session *s = &list->items[list->count++];
-    s->id                   = list->count;
-    s->state                = SESSION_IDLE;
-    s->terminal             = NULL;
-    s->dot                  = NULL;
-    s->pid                  = 0;
-    s->poll_id              = 0;
-    s->idle_timer_id        = 0;
-    s->on_state_changed     = NULL;
-    s->on_state_changed_data = NULL;
+    s->id                    = list->count;
+    s->parent_id             = 0;
+    s->state                 = SESSION_IDLE;
+    s->terminal              = NULL;
+    s->dot                   = NULL;
+    s->cwd_label             = NULL;
+    s->cwd[0]                = '\0';
+    s->pid                   = 0;
+    s->poll_id               = 0;
+    s->idle_timer_id         = 0;
+    s->cwd_timer_id          = 0;
+    s->child_poll_id         = 0;
+    s->on_state_changed      = NULL;
+    s->on_state_changed_data  = NULL;
+    s->seen_child_count      = 0;
+    s->on_child_spawned      = NULL;
+    s->on_child_spawned_data  = NULL;
+    s->on_child_exited       = NULL;
+    s->on_child_exited_data   = NULL;
     strncpy(s->name, name, sizeof(s->name) - 1);
     s->name[sizeof(s->name) - 1] = '\0';
     return s;
@@ -71,19 +81,33 @@ static void on_spawn_done(VteTerminal *term, GPid pid, GError *err, gpointer dat
     s->pid = (int)pid;
 }
 
-void session_spawn(Session *s, const char *cmd)
+void session_spawn(Session *s, const char *cmd, const char *working_dir)
 {
     GtkWidget *term = vte_terminal_new();
     s->terminal = term;
 
-    const char *shell = cmd ? cmd : g_getenv("SHELL");
-    if (!shell) shell = "/bin/sh";
-    char *argv[] = { (char *)shell, NULL };
+    char **argv = NULL;
+    if (cmd && *cmd) {
+        GError *err = NULL;
+        if (!g_shell_parse_argv(cmd, NULL, &argv, &err)) {
+            g_clear_error(&err);
+            argv    = g_new(char *, 2);
+            argv[0] = g_strdup(cmd);
+            argv[1] = NULL;
+        }
+    } else {
+        const char *sh = g_getenv("SHELL");
+        if (!sh) sh = "/bin/sh";
+        argv    = g_new(char *, 2);
+        argv[0] = g_strdup(sh);
+        argv[1] = NULL;
+    }
 
     g_signal_connect(term, "child-exited", G_CALLBACK(on_child_exited), s);
     vte_terminal_spawn_async(VTE_TERMINAL(term), VTE_PTY_DEFAULT,
-        NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+        working_dir, argv, NULL, G_SPAWN_SEARCH_PATH,
         NULL, NULL, NULL, -1, NULL, on_spawn_done, s);
+    g_strfreev(argv);
 }
 
 #ifdef SESSION_TEST

@@ -14,6 +14,10 @@ executable('gattn', [
   'src/session.c',
   'src/state_detector.c',
   'src/notify.c',
+  'src/recents.c',
+  'src/prefs_store.c',
   'src/ui/sidebar.c',
+  'src/ui/prefs.c',
   'src/ui/grid.c',
+  'src/ui/session_picker.c',
 ], dependencies: deps, install: true)
