@@ -25,3 +25,4 @@ void     session_list_init(SessionList *list);
 Session *session_create(SessionList *list, const char *name);
 void     session_destroy(SessionList *list, int id);
 void     session_set_state(Session *s, SessionState state);
+void     session_spawn(Session *s, const char *cmd); /* NULL = $SHELL */

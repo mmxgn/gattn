@@ -1,4 +1,5 @@
 #include "session.h"
+#include <vte/vte.h>
 #include <string.h>
 
 void session_list_init(SessionList *list)
@@ -35,6 +36,35 @@ void session_destroy(SessionList *list, int id)
 void session_set_state(Session *s, SessionState state)
 {
     s->state = state;
+}
+
+static void on_child_exited(VteTerminal *term, int status, gpointer data)
+{
+    (void)term; (void)status;
+    session_set_state((Session *)data, SESSION_DONE);
+}
+
+static void on_spawn_done(VteTerminal *term, GPid pid, GError *err, gpointer data)
+{
+    (void)term;
+    Session *s = data;
+    if (err) { session_set_state(s, SESSION_DONE); return; }
+    s->pid = (int)pid;
+}
+
+void session_spawn(Session *s, const char *cmd)
+{
+    GtkWidget *term = vte_terminal_new();
+    s->terminal = term;
+
+    const char *shell = cmd ? cmd : g_getenv("SHELL");
+    if (!shell) shell = "/bin/sh";
+    char *argv[] = { (char *)shell, NULL };
+
+    g_signal_connect(term, "child-exited", G_CALLBACK(on_child_exited), s);
+    vte_terminal_spawn_async(VTE_TERMINAL(term), VTE_PTY_DEFAULT,
+        NULL, argv, NULL, G_SPAWN_DEFAULT,
+        NULL, NULL, NULL, -1, NULL, on_spawn_done, s);
 }
 
 #ifdef SESSION_TEST

@@ -7,6 +7,13 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      # ponytail: rebuild vte from source — nixpkgs ships it with gtk4=false
+      vte-gtk4 = pkgs.vte.overrideAttrs (old: {
+        buildInputs = old.buildInputs ++ [ pkgs.gtk4 ];
+        mesonFlags = map
+          (f: if f == "-Dgtk4=false" then "-Dgtk4=true" else f)
+          old.mesonFlags;
+      });
     in {
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
@@ -14,6 +21,7 @@
           pkg-config
           gtk4
           libadwaita
+          vte-gtk4
           meson
           ninja
         ];
