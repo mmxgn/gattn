@@ -34,3 +34,4 @@ terminal sessions with color-coded state indicators and a grid view.
 %files
 %{_bindir}/gattn
 %{_datadir}/applications/org.mmxgn.gattn.desktop
+%{_datadir}/icons/hicolor/scalable/apps/org.mmxgn.gattn.svg
