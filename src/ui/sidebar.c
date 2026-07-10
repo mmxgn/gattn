@@ -351,7 +351,22 @@ sidebar_add_session(GtkWidget *split, Session *s)
     GtkStack   *stack = g_object_get_data(G_OBJECT(split), "gattn-stack");
 
     GtkWidget *row = make_row(s);
-    gtk_list_box_append(lb, row);
+
+    if (s->parent_id != 0) {
+        /* insert after parent row and any existing siblings */
+        int pos = -1;
+        for (int i = 0;; i++) {
+            GtkListBoxRow *r = gtk_list_box_get_row_at_index(lb, i);
+            if (!r)
+                break;
+            Session *rs = g_object_get_data(G_OBJECT(r), "gattn-session");
+            if (rs && (rs->id == s->parent_id || rs->parent_id == s->parent_id))
+                pos = i + 1;
+        }
+        gtk_list_box_insert(lb, row, pos);
+    } else {
+        gtk_list_box_append(lb, row);
+    }
 
     if (s->parent_id == 0) {
         char name[32];

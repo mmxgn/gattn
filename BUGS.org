@@ -1,5 +1,8 @@
 #+TITLE: Bugs
 
+* DONE When new sub-agents are spawned, they should be under the main agent in the sidebar, not on the bottom of the sidebar
+sidebar_add_session now inserts children after their parent row, not at the end
+
 * DONE Remove Ctrl+W for closing, it interferes with emacs
 Changed to Ctrl+Shift+W
 
