@@ -327,7 +327,7 @@ make_row(Session *s)
     gtk_box_append(GTK_BOX(box), labels);
     gtk_box_append(GTK_BOX(box), make_icon_btn("folder-open-symbolic", "Open folder",
                                                G_CALLBACK(on_folder_btn_clicked), s));
-    gtk_box_append(GTK_BOX(box), make_icon_btn("vcs-locally-modified-symbolic", "Show diff (Ctrl+Shift+D)",
+    gtk_box_append(GTK_BOX(box), make_icon_btn("document-edit-symbolic", "Show diff (Ctrl+Shift+D)",
                                                G_CALLBACK(on_diff_btn_clicked), s));
     gtk_box_append(GTK_BOX(box), make_icon_btn("window-close-symbolic", "Close session (Ctrl+W)",
                                                G_CALLBACK(on_close_btn_clicked), s));
