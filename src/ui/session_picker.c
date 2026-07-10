@@ -415,10 +415,7 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
     gtk_widget_set_margin_end(inner, 16);
     gtk_widget_set_margin_bottom(inner, 16);
 
-    char      **recents    = recents_list();
-    const char *resume_dir = (initial_dir && *initial_dir) ? initial_dir
-                             : (recents && recents[0])      ? recents[0]
-                                                            : "";
+    char **recents = recents_list();
 
     gtk_box_append(GTK_BOX(inner), make_section_label("Open"));
     GtkWidget *action_lb = make_listbox();
@@ -437,22 +434,15 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
         *ad            = tmpl;
         g_strlcpy(ad->cmd, fixed[i].cmd ? fixed[i].cmd : "", sizeof(ad->cmd));
 
-        const char *subtitle     = fixed[i].subtitle;
-        char        dyn_sub[256] = "";
-        if (i == 1 && resume_dir[0]) {
-            g_strlcpy(ad->dir, resume_dir, sizeof(ad->dir));
-            const char *base = strrchr(resume_dir, '/');
-            const char *name = (base && base[1]) ? base + 1 : resume_dir;
-            g_snprintf(dyn_sub, sizeof(dyn_sub), "Continue session in %s", name);
-            subtitle = dyn_sub;
-        } else if (i != 1 && initial_dir && *initial_dir) {
+        /* ponytail: fixed Resume row always prompts for a folder;
+           per-dir resume lives on recent rows. */
+        if (i != 1 && initial_dir && *initial_dir)
             g_strlcpy(ad->dir, initial_dir, sizeof(ad->dir));
-        } else {
+        else
             ad->dir[0] = '\0';
-        }
 
         gtk_list_box_append(GTK_LIST_BOX(action_lb),
-                            make_action_row(fixed[i].icon, fixed[i].title, subtitle, ad));
+                            make_action_row(fixed[i].icon, fixed[i].title, fixed[i].subtitle, ad));
     }
     gtk_list_box_set_filter_func(GTK_LIST_BOX(action_lb), filter_row, search, NULL);
     g_signal_connect_swapped(search, "search-changed", G_CALLBACK(gtk_list_box_invalidate_filter),
