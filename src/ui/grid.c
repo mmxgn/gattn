@@ -31,14 +31,14 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
     /* count only top-level sessions — children share parent's terminal */
     int tile_count = 0;
     for (int i = 0; i < sessions->count; i++)
-        if (sessions->items[i].parent_id == 0)
+        if (sessions->items[i] && sessions->items[i]->parent_id == 0)
             tile_count++;
 
     GtkWidget **frames = g_new(GtkWidget *, tile_count ? tile_count : 1);
     int         tile   = 0;
     for (int i = 0; i < sessions->count; i++) {
-        Session *s = &sessions->items[i];
-        if (s->parent_id != 0)
+        Session *s = sessions->items[i];
+        if (!s || s->parent_id != 0)
             continue;
         frames[tile] = gtk_frame_new(s->name);
         gtk_widget_set_hexpand(frames[tile], TRUE);
@@ -66,8 +66,8 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
     /* 3. Fill frames — VTE is new to these tiles, no resize */
     tile = 0;
     for (int i = 0; i < sessions->count; i++) {
-        Session *s = &sessions->items[i];
-        if (s->parent_id != 0)
+        Session *s = sessions->items[i];
+        if (!s || s->parent_id != 0)
             continue;
         g_object_ref(s->terminal);
         gtk_stack_remove(GTK_STACK(inner_stack), s->terminal);
@@ -86,8 +86,8 @@ grid_exit(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions)
 
     /* 1. Restore terminals while grid is still showing — inner_stack is hidden */
     for (int i = 0; i < sessions->count; i++) {
-        Session *s = &sessions->items[i];
-        if (s->parent_id != 0)
+        Session *s = sessions->items[i];
+        if (!s || s->parent_id != 0)
             continue; /* children share parent terminal, not in grid */
         GtkWidget *frame = gtk_widget_get_parent(s->terminal);
 

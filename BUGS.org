@@ -26,3 +26,6 @@ on_move_session uses modulo wrap-around
 
 * DONE With ctrl+pg_up/pg_down I want to move to the top/bottom in the list immediatelly
 Added jump-first (Ctrl+PgUp) and jump-last (Ctrl+PgDn) actions
+
+* DONE Cannot run two instances of gattn at the same time; the second launch steals the VTE terminals from the first
+Registered the AdwApplication with G_APPLICATION_NON_UNIQUE so each launch runs its own process instead of activating the primary.

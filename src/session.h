@@ -38,9 +38,12 @@ struct Session {
     gpointer              on_child_exited_data;
 };
 
+/* ponytail: heap-allocated slots with stable pointers.
+   Shifting the array on destroy invalidated Session* held by widget/data callbacks. */
 typedef struct {
-    struct Session items[32];
-    int            count;
+    struct Session *items[32];
+    int             count;   /* high-water mark of used slots; may contain NULL holes */
+    int             next_id; /* monotonic id counter */
 } SessionList;
 
 void     session_list_init(SessionList *list);
@@ -48,3 +51,4 @@ Session *session_create(SessionList *list, const char *name);
 void     session_destroy(SessionList *list, int id);
 void     session_set_state(Session *s, SessionState state);
 void     session_spawn(Session *s, const char *cmd, const char *working_dir);
+void     session_refresh_a11y(Session *s);

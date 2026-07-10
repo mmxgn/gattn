@@ -31,6 +31,8 @@ static struct {
     GtkWidget       *split;
     AdwToastOverlay *overlay;
     GApplication    *gapp;
+    double           zoom;       /* VTE font scale; 1.0 = default */
+    GtkLabel        *zoom_label; /* percentage shown in the hamburger popover */
 } app;
 
 static GSimpleAction   *exit_grid_act;
@@ -38,7 +40,7 @@ static GtkToggleButton *grid_btn;
 
 static void apply_prefs_to_terminal(VteTerminal *t, const GattnPrefs *p);
 
-/* ── helpers ── */
+/* -- helpers -- */
 
 static GtkListBox *
 get_lb(void)
@@ -53,7 +55,7 @@ selected_session(void)
     return row ? g_object_get_data(G_OBJECT(row), "gattn-session") : NULL;
 }
 
-/* ── grid toggle (keeps exit-grid action in sync) ── */
+/* -- grid toggle (keeps exit-grid action in sync) -- */
 
 static void toggle_grid(void); /* forward declaration */
 
@@ -76,7 +78,7 @@ toggle_grid(void)
         gtk_toggle_button_set_active(grid_btn, in_grid);
 }
 
-/* ── action callbacks ── */
+/* -- action callbacks -- */
 
 static void
 on_toggle_grid(GSimpleAction *a, GVariant *p, gpointer d)
@@ -234,7 +236,7 @@ on_next_unattended(GSimpleAction *a, GVariant *p, gpointer d)
     }
 }
 
-/* ── sub-agent detection ── */
+/* -- sub-agent detection -- */
 
 static void
 on_child_spawned(int child_pid, int parent_id, gpointer data)
@@ -242,14 +244,14 @@ on_child_spawned(int child_pid, int parent_id, gpointer data)
     (void)data;
     /* already tracked? */
     for (int i = 0; i < sessions.count; i++)
-        if (sessions.items[i].pid == child_pid)
+        if (sessions.items[i] && sessions.items[i]->pid == child_pid)
             return;
 
     /* find parent */
     Session *parent = NULL;
     for (int i = 0; i < sessions.count; i++)
-        if (sessions.items[i].id == parent_id) {
-            parent = &sessions.items[i];
+        if (sessions.items[i] && sessions.items[i]->id == parent_id) {
+            parent = sessions.items[i];
             break;
         }
     if (!parent)
@@ -283,9 +285,10 @@ on_child_exited(int child_pid, int parent_id, gpointer data)
     (void)parent_id;
     (void)data;
     for (int i = 0; i < sessions.count; i++) {
-        if (sessions.items[i].pid == child_pid && sessions.items[i].parent_id != 0) {
-            int id = sessions.items[i].id;
-            state_detector_stop(&sessions.items[i]);
+        Session *si = sessions.items[i];
+        if (si && si->pid == child_pid && si->parent_id != 0) {
+            int id = si->id;
+            state_detector_stop(si);
             sidebar_remove_session(app.split, id);
             session_destroy(&sessions, id);
             return;
@@ -293,7 +296,7 @@ on_child_exited(int child_pid, int parent_id, gpointer data)
     }
 }
 
-/* ── session cleanup (fires after session.c's own child-exited handler) ── */
+/* -- session cleanup (fires after session.c's own child-exited handler) -- */
 
 static void
 on_session_cleanup(GtkWidget *term, int status, gpointer data)
@@ -309,12 +312,12 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
     /* collect and remove child sessions */
     int child_ids[32], child_count = 0;
     for (int i = 0; i < sessions.count; i++)
-        if (sessions.items[i].parent_id == id && child_count < 32)
-            child_ids[child_count++] = sessions.items[i].id;
+        if (sessions.items[i] && sessions.items[i]->parent_id == id && child_count < 32)
+            child_ids[child_count++] = sessions.items[i]->id;
     for (int i = 0; i < child_count; i++) {
         for (int j = 0; j < sessions.count; j++)
-            if (sessions.items[j].id == child_ids[i]) {
-                state_detector_stop(&sessions.items[j]);
+            if (sessions.items[j] && sessions.items[j]->id == child_ids[i]) {
+                state_detector_stop(sessions.items[j]);
                 break;
             }
         sidebar_remove_session(app.split, child_ids[i]);
@@ -326,7 +329,7 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
     sessions_save(&sessions);
 }
 
-/* ── session creation ── */
+/* -- session creation -- */
 
 static void
 add_session(GtkWidget *split, const char *cmd, const char *working_dir)
@@ -386,6 +389,7 @@ apply_prefs_to_terminal(VteTerminal *t, const GattnPrefs *p)
     PangoFontDescription *fd = pango_font_description_from_string(p->font);
     vte_terminal_set_font(t, fd);
     pango_font_description_free(fd);
+    vte_terminal_set_font_scale(t, app.zoom);
     GdkRGBA fg = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 1 };
     gdk_rgba_parse(&fg, p->fg);
     gdk_rgba_parse(&bg, p->bg);
@@ -398,8 +402,8 @@ on_prefs_changed(gpointer data)
     (void)data;
     GattnPrefs p = prefs_load();
     for (int i = 0; i < sessions.count; i++)
-        if (sessions.items[i].terminal)
-            apply_prefs_to_terminal(VTE_TERMINAL(sessions.items[i].terminal), &p);
+        if (sessions.items[i] && sessions.items[i]->terminal)
+            apply_prefs_to_terminal(VTE_TERMINAL(sessions.items[i]->terminal), &p);
 }
 
 static void
@@ -425,7 +429,7 @@ on_about(GSimpleAction *a, GVariant *p, gpointer d)
     adw_about_dialog_set_comments(dlg, "GNOME attention hub for Claude Code sessions");
     adw_about_dialog_set_website(dlg, "https://github.com/mmxgn/gattn");
     adw_about_dialog_set_issue_url(dlg, "https://github.com/mmxgn/gattn/issues");
-    adw_about_dialog_set_license_type(dlg, GTK_LICENSE_MIT_X11);
+    adw_about_dialog_set_license_type(dlg, GTK_LICENSE_GPL_3_0);
     const char *devs[] = { "mmxgn", NULL };
     adw_about_dialog_set_developers(dlg, devs);
     GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(app.gapp));
@@ -452,6 +456,80 @@ on_focus_sidebar(GSimpleAction *a, GVariant *p, gpointer d)
     (void)d;
     adw_navigation_split_view_set_show_content(ADW_NAVIGATION_SPLIT_VIEW(app.split), FALSE);
     gtk_widget_grab_focus(GTK_WIDGET(get_lb()));
+}
+
+/* -- zoom, fullscreen, color-scheme -- */
+
+static void
+apply_zoom_to_all(void)
+{
+    for (int i = 0; i < sessions.count; i++)
+        if (sessions.items[i] && sessions.items[i]->terminal)
+            vte_terminal_set_font_scale(VTE_TERMINAL(sessions.items[i]->terminal), app.zoom);
+    if (app.zoom_label) {
+        char buf[16];
+        g_snprintf(buf, sizeof(buf), "%d%%", (int)(app.zoom * 100 + 0.5));
+        gtk_label_set_text(app.zoom_label, buf);
+    }
+}
+
+static void
+on_zoom_in(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    app.zoom = MIN(app.zoom + 0.1, 3.0);
+    apply_zoom_to_all();
+}
+static void
+on_zoom_out(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    app.zoom = MAX(app.zoom - 0.1, 0.5);
+    apply_zoom_to_all();
+}
+static void
+on_zoom_reset(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    app.zoom = 1.0;
+    apply_zoom_to_all();
+}
+
+static void
+on_fullscreen(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(app.gapp));
+    if (!win)
+        return;
+    if (gtk_window_is_fullscreen(win))
+        gtk_window_unfullscreen(win);
+    else
+        gtk_window_fullscreen(win);
+}
+
+static void
+on_color_scheme(GSimpleAction *a, GVariant *param, gpointer d)
+{
+    (void)d;
+    if (!param)
+        return;
+    const char    *v      = g_variant_get_string(param, NULL);
+    AdwColorScheme scheme = ADW_COLOR_SCHEME_DEFAULT;
+    if (g_strcmp0(v, "light") == 0)
+        scheme = ADW_COLOR_SCHEME_FORCE_LIGHT;
+    else if (g_strcmp0(v, "dark") == 0)
+        scheme = ADW_COLOR_SCHEME_FORCE_DARK;
+    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), scheme);
+    g_simple_action_set_state(a, param);
 }
 
 static void
@@ -487,7 +565,42 @@ on_new_session_action(GSimpleAction *a, GVariant *p, gpointer d)
     on_new_session(app.split, NULL);
 }
 
-/* ── startup ── */
+static void
+on_shell_here(GtkWidget *split, const char *cwd, gpointer d)
+{
+    (void)d;
+    add_session(split, NULL, cwd);
+}
+
+static void
+on_compact_level_0_apply(gpointer d)
+{
+    (void)d;
+    sidebar_set_compact_level(app.split, 0);
+}
+static void
+on_compact_level_1_apply(gpointer d)
+{
+    (void)d;
+    sidebar_set_compact_level(app.split, 1);
+}
+static void
+on_compact_level_2_apply(gpointer d)
+{
+    (void)d;
+    sidebar_set_compact_level(app.split, 2);
+}
+
+static void
+on_toggle_search(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    sidebar_toggle_search(app.split);
+}
+
+/* -- startup -- */
 
 static void
 register_action(GActionMap *map, const char *name, GCallback cb, gpointer data)
@@ -503,6 +616,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
 {
     (void)data;
     app.gapp = G_APPLICATION(app_obj);
+    app.zoom = 1.0;
 
     gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()),
                                      "/org/mmxgn/gattn/icons");
@@ -517,6 +631,8 @@ on_activate(AdwApplication *app_obj, gpointer data)
     app.overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
 
     app.split = sidebar_new(&sessions, on_new_session, NULL);
+    sidebar_set_shell_here(app.split, on_shell_here, NULL);
+    app.zoom_label = GTK_LABEL(g_object_get_data(G_OBJECT(app.split), "gattn-zoom-label"));
 
     AdwHeaderBar *content_hdr = g_object_get_data(G_OBJECT(app.split), "gattn-content-header");
     grid_btn                  = GTK_TOGGLE_BUTTON(gtk_toggle_button_new());
@@ -545,6 +661,18 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "preferences", G_CALLBACK(on_preferences), NULL);
     register_action(map, "about", G_CALLBACK(on_about), NULL);
     register_action(map, "rename-session", G_CALLBACK(on_rename_session), NULL);
+    register_action(map, "toggle-search", G_CALLBACK(on_toggle_search), NULL);
+    register_action(map, "zoom-in", G_CALLBACK(on_zoom_in), NULL);
+    register_action(map, "zoom-out", G_CALLBACK(on_zoom_out), NULL);
+    register_action(map, "zoom-reset", G_CALLBACK(on_zoom_reset), NULL);
+    register_action(map, "fullscreen", G_CALLBACK(on_fullscreen), NULL);
+
+    /* Stateful action driving the three theme buttons in the hamburger. */
+    GSimpleAction *cs_act = g_simple_action_new_stateful("color-scheme", G_VARIANT_TYPE_STRING,
+                                                         g_variant_new_string("auto"));
+    g_signal_connect(cs_act, "activate", G_CALLBACK(on_color_scheme), NULL);
+    g_action_map_add_action(map, G_ACTION(cs_act));
+    g_object_unref(cs_act);
 
     /* exit-grid is disabled until grid mode is entered */
     exit_grid_act = g_simple_action_new("exit-grid", NULL);
@@ -558,6 +686,33 @@ on_activate(AdwApplication *app_obj, gpointer data)
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
     gtk_window_set_icon_name(GTK_WINDOW(win), "org.mmxgn.gattn");
     adw_application_window_set_content(win, GTK_WIDGET(app.overlay));
+
+    /* Adaptive sidebar: hide inline row actions, then cwd, then collapse the split. */
+    AdwBreakpoint *bp_hide_actions
+        = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 900sp"));
+    g_signal_connect_swapped(bp_hide_actions, "apply", G_CALLBACK(on_compact_level_1_apply), NULL);
+    g_signal_connect_swapped(bp_hide_actions, "unapply", G_CALLBACK(on_compact_level_0_apply),
+                             NULL);
+    adw_application_window_add_breakpoint(win, bp_hide_actions);
+
+    AdwBreakpoint *bp_hide_cwd
+        = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 700sp"));
+    g_signal_connect_swapped(bp_hide_cwd, "apply", G_CALLBACK(on_compact_level_2_apply), NULL);
+    g_signal_connect_swapped(bp_hide_cwd, "unapply", G_CALLBACK(on_compact_level_1_apply), NULL);
+    adw_application_window_add_breakpoint(win, bp_hide_cwd);
+
+    AdwBreakpoint *bp_collapse
+        = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 500sp"));
+    GValue vtrue = G_VALUE_INIT;
+    g_value_init(&vtrue, G_TYPE_BOOLEAN);
+    g_value_set_boolean(&vtrue, TRUE);
+    adw_breakpoint_add_setter(bp_collapse, G_OBJECT(app.split), "collapsed", &vtrue);
+    /* Also push the content page so the terminal is the visible root on squeeze,
+       not the sidebar. */
+    adw_breakpoint_add_setter(bp_collapse, G_OBJECT(app.split), "show-content", &vtrue);
+    g_value_unset(&vtrue);
+    adw_application_window_add_breakpoint(win, bp_collapse);
+
     gtk_window_present(GTK_WINDOW(win));
 
     SavedSession saved[32];
@@ -576,7 +731,9 @@ main(int argc, char *argv[])
 {
     g_resources_register(gattn_resources_get_resource());
     session_list_init(&sessions);
-    AdwApplication *a = adw_application_new("org.mmxgn.gattn", G_APPLICATION_DEFAULT_FLAGS);
+    /* ponytail: NON_UNIQUE lets multiple gattn instances coexist;
+       otherwise a second launch activates the first and reparents its VTEs. */
+    AdwApplication *a = adw_application_new("org.mmxgn.gattn", G_APPLICATION_NON_UNIQUE);
     g_signal_connect(a, "activate", G_CALLBACK(on_activate), NULL);
 
     struct {
@@ -596,6 +753,11 @@ main(int argc, char *argv[])
         { "app.focus-sidebar", "<Control>Left" },
         { "app.focus-content", "<Control>Right" },
         { "app.rename-session", "F2" },
+        { "app.toggle-search", "<Control>f" },
+        { "app.zoom-in", "<Control>plus" },
+        { "app.zoom-out", "<Control>minus" },
+        { "app.zoom-reset", "<Control>0" },
+        { "app.fullscreen", "F11" },
     };
     for (size_t i = 0; i < sizeof(bindings) / sizeof(*bindings); i++) {
         const char *accels[] = { bindings[i].accel, NULL };

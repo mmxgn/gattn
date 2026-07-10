@@ -13,7 +13,7 @@ prefs_path(void)
 GattnPrefs
 prefs_load(void)
 {
-    GattnPrefs p    = { "Monospace 12", "#ffffff", "#000000" };
+    GattnPrefs p    = { "Monospace 12", "#ffffff", "#000000", "Default" };
     char      *path = prefs_path();
     GKeyFile  *kf   = g_key_file_new();
     if (g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL)) {
@@ -28,6 +28,10 @@ prefs_load(void)
         }
         if ((v = g_key_file_get_string(kf, GROUP, "bg", NULL))) {
             g_strlcpy(p.bg, v, sizeof(p.bg));
+            g_free(v);
+        }
+        if ((v = g_key_file_get_string(kf, GROUP, "theme", NULL))) {
+            g_strlcpy(p.theme, v, sizeof(p.theme));
             g_free(v);
         }
     }
@@ -47,6 +51,7 @@ prefs_save(const GattnPrefs *p)
     g_key_file_set_string(kf, GROUP, "font", p->font);
     g_key_file_set_string(kf, GROUP, "fg", p->fg);
     g_key_file_set_string(kf, GROUP, "bg", p->bg);
+    g_key_file_set_string(kf, GROUP, "theme", p->theme);
     g_key_file_save_to_file(kf, path, NULL);
     g_key_file_unref(kf);
     g_free(path);

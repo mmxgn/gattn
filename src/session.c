@@ -1,41 +1,48 @@
+#define _GNU_SOURCE 1
 #include "session.h"
+#include <gio/gio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <vte/vte.h>
+
+/* PCRE2 compile flags (stable ABI values) — avoids pulling in <pcre2.h>. */
+#define GATTN_PCRE2_CASELESS 0x00000008u
+#define GATTN_PCRE2_MULTILINE 0x00000400u
+
+/* URLs, absolute paths, and multi-segment relative paths (foo/bar, ./x, ../x, ~/x).
+   Trailing punctuation is trimmed at open time. */
+static const char URL_PATH_REGEX[] = "(?:(?:https?|ftp|file)://|www\\.)[^\\s<>\"'`]+"
+                                     "|~?/[^\\s<>\"'`]+"
+                                     "|\\.{1,2}/[^\\s<>\"'`]+"
+                                     "|[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+";
 
 void
 session_list_init(SessionList *list)
 {
-    list->count = 0;
+    memset(list, 0, sizeof(*list));
 }
 
 Session *
 session_create(SessionList *list, const char *name)
 {
-    if (list->count >= 32)
+    int slot = -1;
+    for (int i = 0; i < 32; i++)
+        if (!list->items[i]) {
+            slot = i;
+            break;
+        }
+    if (slot < 0)
         return NULL;
-    Session *s               = &list->items[list->count++];
-    s->id                    = list->count;
-    s->parent_id             = 0;
-    s->state                 = SESSION_IDLE;
-    s->terminal              = NULL;
-    s->dot                   = NULL;
-    s->cwd_label             = NULL;
-    s->cmd[0]                = '\0';
-    s->cwd[0]                = '\0';
-    s->pid                   = 0;
-    s->poll_id               = 0;
-    s->idle_timer_id         = 0;
-    s->cwd_timer_id          = 0;
-    s->child_poll_id         = 0;
-    s->on_state_changed      = NULL;
-    s->on_state_changed_data = NULL;
-    s->seen_child_count      = 0;
-    s->on_child_spawned      = NULL;
-    s->on_child_spawned_data = NULL;
-    s->on_child_exited       = NULL;
-    s->on_child_exited_data  = NULL;
+
+    Session *s = g_new0(Session, 1);
+    s->id      = ++list->next_id;
     strncpy(s->name, name, sizeof(s->name) - 1);
     s->name[sizeof(s->name) - 1] = '\0';
+
+    list->items[slot] = s;
+    if (slot + 1 > list->count)
+        list->count = slot + 1;
     return s;
 }
 
@@ -43,12 +50,13 @@ void
 session_destroy(SessionList *list, int id)
 {
     for (int i = 0; i < list->count; i++) {
-        if (list->items[i].id != id)
-            continue;
-        for (int j = i; j < list->count - 1; j++)
-            list->items[j] = list->items[j + 1];
-        list->count--;
-        return;
+        if (list->items[i] && list->items[i]->id == id) {
+            g_free(list->items[i]);
+            list->items[i] = NULL;
+            while (list->count > 0 && !list->items[list->count - 1])
+                list->count--;
+            return;
+        }
     }
 }
 
@@ -58,6 +66,39 @@ static const char *const dot_classes[] = {
     [SESSION_NEEDS_INPUT] = "dot-needs-input",
     [SESSION_DONE]        = "dot-done",
 };
+
+static const char *
+state_name(SessionState st)
+{
+    switch (st) {
+    case SESSION_IDLE:
+        return "idle";
+    case SESSION_WORKING:
+        return "working";
+    case SESSION_NEEDS_INPUT:
+        return "needs input";
+    case SESSION_DONE:
+        return "done";
+    }
+    return "";
+}
+
+void
+session_refresh_a11y(Session *s)
+{
+    if (!s || !s->dot)
+        return;
+    gtk_accessible_update_property(GTK_ACCESSIBLE(s->dot), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                   state_name(s->state), -1);
+    GtkWidget *row = gtk_widget_get_ancestor(s->dot, GTK_TYPE_LIST_BOX_ROW);
+    if (row) {
+        const char *base     = s->cwd[0] ? strrchr(s->cwd, '/') : NULL;
+        const char *cwd_base = (base && base[1]) ? base + 1 : (s->cwd[0] ? s->cwd : "~");
+        char        buf[320];
+        g_snprintf(buf, sizeof(buf), "%s, %s, %s", s->name, state_name(s->state), cwd_base);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(row), GTK_ACCESSIBLE_PROPERTY_LABEL, buf, -1);
+    }
+}
 
 void
 session_set_state(Session *s, SessionState state)
@@ -69,6 +110,13 @@ session_set_state(Session *s, SessionState state)
         gtk_widget_add_css_class(s->dot, dot_classes[state]);
     }
     s->state = state;
+    session_refresh_a11y(s);
+    if (state == SESSION_NEEDS_INPUT && s->dot) {
+        char msg[128];
+        g_snprintf(msg, sizeof(msg), "%s needs input", s->name);
+        gtk_accessible_announce(GTK_ACCESSIBLE(s->dot), msg,
+                                GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
+    }
     if (s->on_state_changed)
         s->on_state_changed(s, s->on_state_changed_data);
 }
@@ -78,7 +126,10 @@ on_child_exited(VteTerminal *term, int status, gpointer data)
 {
     (void)term;
     (void)status;
-    session_set_state((Session *)data, SESSION_DONE);
+    Session *s = data;
+    /* Prevent PID-reuse: don't leave a signal target pointing at a recycled process. */
+    s->pid = 0;
+    session_set_state(s, SESSION_DONE);
 }
 
 static void
@@ -93,30 +144,234 @@ on_spawn_done(VteTerminal *term, GPid pid, GError *err, gpointer data)
     s->pid = (int)pid;
 }
 
+/* Trim trailing punctuation people often type after URLs / paths (), ., ,, ;, :). */
 static void
-on_copy_action(GSimpleAction *a, GVariant *p, gpointer term)
+trim_match(char *s)
 {
-    (void)a;
-    (void)p;
-    vte_terminal_copy_clipboard_format(VTE_TERMINAL(term), VTE_FORMAT_TEXT);
+    size_t n = strlen(s);
+    while (n > 0 && strchr(").,;:!?]}", s[n - 1]))
+        s[--n] = '\0';
+}
+
+/* Regular file (or directory) that's safe to hand to xdg-open.
+   Refuses .desktop entries: gvfs treats them as executable launchers. */
+static gboolean
+is_safe_target(const char *path)
+{
+    struct stat st;
+    if (stat(path, &st) != 0)
+        return FALSE;
+    if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))
+        return FALSE;
+    if (g_str_has_suffix(path, ".desktop"))
+        return FALSE;
+    return TRUE;
+}
+
+/* Resolve a path candidate to an absolute realpath. If the input was relative
+   to base_dir, require the result to stay under realpath(base_dir) so terminal
+   output can't Ctrl-click us into `../../etc/passwd`. Caller frees. */
+static char *
+resolve_local_path(const char *raw, const char *base_dir)
+{
+    char *joined = NULL;
+    if (raw[0] == '/') {
+        joined = g_strdup(raw);
+    } else if (raw[0] == '~') {
+        joined = g_strdup_printf("%s%s", g_get_home_dir(), raw + 1);
+    } else if (base_dir && *base_dir) {
+        joined = g_strdup_printf("%s/%s", base_dir, raw);
+    } else {
+        return NULL;
+    }
+    char *real = realpath(joined, NULL);
+    g_free(joined);
+    if (!real)
+        return NULL;
+
+    if (raw[0] != '/' && raw[0] != '~' && base_dir && *base_dir) {
+        char    *base_real = realpath(base_dir, NULL);
+        gboolean inside    = FALSE;
+        if (base_real) {
+            size_t bl = strlen(base_real);
+            inside    = g_str_has_prefix(real, base_real) && (real[bl] == '\0' || real[bl] == '/');
+        }
+        free(base_real);
+        if (!inside) {
+            free(real);
+            return NULL;
+        }
+    }
+    return real;
+}
+
+/* Resolve `match` to a launchable URI and open it. Refuses unknown URL schemes
+   and unsafe file:// targets (.desktop, non-regular files, escapes from base_dir). */
+static void
+open_match(const char *match, const char *base_dir)
+{
+    if (!match || !*match)
+        return;
+    char *m = g_strdup(match);
+    trim_match(m);
+
+    char *uri = NULL;
+    if (g_str_has_prefix(m, "http://") || g_str_has_prefix(m, "https://")
+        || g_str_has_prefix(m, "ftp://")) {
+        uri = g_strdup(m);
+    } else if (g_str_has_prefix(m, "www.")) {
+        uri = g_strdup_printf("https://%s", m);
+    } else if (g_str_has_prefix(m, "file://")) {
+        char *path = g_uri_unescape_string(m + 7, NULL);
+        if (path && is_safe_target(path))
+            uri = g_strdup_printf("file://%s", path);
+        g_free(path);
+    } else if (strstr(m, "://")) {
+        /* Unknown scheme — refuse. Prevents `steam://…`, `custom://…`, etc. */
+    } else {
+        char *real = resolve_local_path(m, base_dir);
+        if (real && is_safe_target(real))
+            uri = g_strdup_printf("file://%s", real);
+        free(real);
+    }
+    g_free(m);
+
+    if (uri) {
+        g_app_info_launch_default_for_uri(uri, NULL, NULL);
+        g_free(uri);
+    }
+}
+
+static const char *
+term_cwd(GtkWidget *term)
+{
+    Session *s = g_object_get_data(G_OBJECT(term), "gattn-session");
+    return (s && s->cwd[0]) ? s->cwd : NULL;
+}
+
+/* Return matched string at widget-local (x, y), or NULL. Caller frees. */
+static char *
+match_at(VteTerminal *term, double x, double y)
+{
+    int   tag = -1;
+    char *m   = vte_terminal_check_match_at(term, x, y, &tag);
+    return (m && *m) ? m : (g_free(m), NULL);
+}
+
+typedef struct {
+    VteTerminal *term;
+    char        *match; /* nullable */
+} MenuCtx;
+
+static void
+menu_ctx_free(gpointer d)
+{
+    MenuCtx *c = d;
+    g_free(c->match);
+    g_free(c);
 }
 
 static void
-on_paste_action(GSimpleAction *a, GVariant *p, gpointer term)
+on_menu_open(GtkButton *btn, gpointer data)
 {
-    (void)a;
-    (void)p;
-    vte_terminal_paste_clipboard(VTE_TERMINAL(term));
+    MenuCtx   *c   = data;
+    GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
+    open_match(c->match, term_cwd(GTK_WIDGET(c->term)));
 }
 
 static void
-on_right_click(GtkGestureClick *gesture, int n, double x, double y, gpointer popover)
+on_menu_copy(GtkButton *btn, gpointer data)
+{
+    MenuCtx   *c   = data;
+    GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
+    vte_terminal_copy_clipboard_format(c->term, VTE_FORMAT_TEXT);
+}
+
+static void
+on_menu_paste(GtkButton *btn, gpointer data)
+{
+    MenuCtx   *c   = data;
+    GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_POPOVER);
+    if (pop)
+        gtk_popover_popdown(GTK_POPOVER(pop));
+    vte_terminal_paste_clipboard(c->term);
+}
+
+static GtkWidget *
+menu_row(const char *icon, const char *label, GCallback cb, MenuCtx *ctx, gboolean own_ctx)
+{
+    GtkWidget *btn  = gtk_button_new();
+    GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(hbox), gtk_image_new_from_icon_name(icon));
+    GtkWidget *lbl = gtk_label_new(label);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0.0f);
+    gtk_widget_set_hexpand(lbl, TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(lbl), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(lbl), 40);
+    gtk_box_append(GTK_BOX(hbox), lbl);
+    gtk_button_set_child(GTK_BUTTON(btn), hbox);
+    gtk_widget_add_css_class(btn, "flat");
+    gtk_widget_set_halign(btn, GTK_ALIGN_FILL);
+    if (own_ctx)
+        g_signal_connect_data(btn, "clicked", cb, ctx, (GClosureNotify)menu_ctx_free, 0);
+    else
+        g_signal_connect(btn, "clicked", cb, ctx);
+    return btn;
+}
+
+static void
+on_right_click(GtkGestureClick *gesture, int n, double x, double y, gpointer term_ptr)
 {
     (void)n;
+    VteTerminal *term = term_ptr;
+
+    MenuCtx *ctx = g_new0(MenuCtx, 1);
+    ctx->term    = term;
+    ctx->match   = match_at(term, x, y);
+
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    if (ctx->match) {
+        char label[128];
+        g_snprintf(label, sizeof(label), "Open  %s", ctx->match);
+        gtk_box_append(GTK_BOX(vbox), menu_row("document-open-symbolic", label,
+                                               G_CALLBACK(on_menu_open), ctx, FALSE));
+        gtk_box_append(GTK_BOX(vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    }
+    gtk_box_append(GTK_BOX(vbox),
+                   menu_row("edit-copy-symbolic", "Copy", G_CALLBACK(on_menu_copy), ctx, FALSE));
+    gtk_box_append(GTK_BOX(vbox),
+                   menu_row("edit-paste-symbolic", "Paste", G_CALLBACK(on_menu_paste), ctx, TRUE));
+
+    GtkWidget *pop = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(pop), vbox);
+    gtk_widget_set_parent(pop, GTK_WIDGET(term));
     GdkRectangle rect = { (int)x, (int)y, 1, 1 };
-    gtk_popover_set_pointing_to(GTK_POPOVER(popover), &rect);
-    gtk_popover_popup(GTK_POPOVER(popover));
+    gtk_popover_set_pointing_to(GTK_POPOVER(pop), &rect);
+    gtk_popover_set_has_arrow(GTK_POPOVER(pop), FALSE);
+    g_signal_connect_swapped(pop, "closed", G_CALLBACK(gtk_widget_unparent), pop);
+    gtk_popover_popup(GTK_POPOVER(pop));
     gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+}
+
+/* Ctrl+left-click on a match opens it (bare click stays for text selection). */
+static void
+on_primary_press(GtkGestureClick *gesture, int n, double x, double y, gpointer term_ptr)
+{
+    (void)n;
+    GdkModifierType mods
+        = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(gesture));
+    if (!(mods & GDK_CONTROL_MASK))
+        return;
+    char *m = match_at(VTE_TERMINAL(term_ptr), x, y);
+    if (m) {
+        open_match(m, term_cwd(GTK_WIDGET(term_ptr)));
+        g_free(m);
+        gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+    }
 }
 
 void
@@ -124,31 +379,26 @@ session_spawn(Session *s, const char *cmd, const char *working_dir)
 {
     GtkWidget *term = vte_terminal_new();
     s->terminal     = term;
+    g_object_set_data(G_OBJECT(term), "gattn-session", s);
 
-    GSimpleActionGroup *ag        = g_simple_action_group_new();
-    GSimpleAction      *copy_act  = g_simple_action_new("copy", NULL);
-    GSimpleAction      *paste_act = g_simple_action_new("paste", NULL);
-    g_signal_connect(copy_act, "activate", G_CALLBACK(on_copy_action), term);
-    g_signal_connect(paste_act, "activate", G_CALLBACK(on_paste_action), term);
-    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(copy_act));
-    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(paste_act));
-    g_object_unref(copy_act);
-    g_object_unref(paste_act);
-    gtk_widget_insert_action_group(term, "term", G_ACTION_GROUP(ag));
-    g_object_unref(ag);
+    /* Register URL/path regex so VTE highlights matches + shows the pointer cursor. */
+    VteRegex *regex = vte_regex_new_for_match(URL_PATH_REGEX, -1,
+                                              GATTN_PCRE2_CASELESS | GATTN_PCRE2_MULTILINE, NULL);
+    if (regex) {
+        int tag = vte_terminal_match_add_regex(VTE_TERMINAL(term), regex, 0);
+        vte_terminal_match_set_cursor_name(VTE_TERMINAL(term), tag, "pointer");
+        vte_regex_unref(regex);
+    }
 
-    GMenu *menu = g_menu_new();
-    g_menu_append(menu, "Copy", "term.copy");
-    g_menu_append(menu, "Paste", "term.paste");
-    GtkWidget *popover = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
-    g_object_unref(menu);
-    gtk_widget_set_parent(popover, term);
-    gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+    GtkGesture *rc = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rc), GDK_BUTTON_SECONDARY);
+    g_signal_connect(rc, "pressed", G_CALLBACK(on_right_click), term);
+    gtk_widget_add_controller(term, GTK_EVENT_CONTROLLER(rc));
 
-    GtkGesture *click = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), GDK_BUTTON_SECONDARY);
-    g_signal_connect(click, "pressed", G_CALLBACK(on_right_click), popover);
-    gtk_widget_add_controller(term, GTK_EVENT_CONTROLLER(click));
+    GtkGesture *lc = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(lc), GDK_BUTTON_PRIMARY);
+    g_signal_connect(lc, "pressed", G_CALLBACK(on_primary_press), term);
+    gtk_widget_add_controller(term, GTK_EVENT_CONTROLLER(lc));
 
     char **argv = NULL;
     if (cmd && *cmd) {

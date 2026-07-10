@@ -1,3 +1,5 @@
+<p align="center"><img src="data/icons/hicolor/scalable/apps/org.mmxgn.gattn.svg" width="96" alt="gattn logo"></p>
+
 # gattn
 
 Attention-grabbing session manager for agentic programming on GNOME.
@@ -8,8 +10,26 @@ Monitors multiple Claude Code sessions in a sidebar, highlights when one needs y
 
 ![screenshot](img/screenshot.png)
 
-## Run
+## Install
 
+Grab the latest asset from the [releases page](https://github.com/mmxgn/gattn/releases/latest).
+
+**AppImage**
+```sh
+chmod +x gattn-*.AppImage && ./gattn-*.AppImage
+```
+
+**Ubuntu / Debian**
+```sh
+sudo apt install ./gattn_*.deb
+```
+
+**Fedora**
+```sh
+sudo dnf install ./gattn-*.rpm
+```
+
+**Nix**
 ```sh
 nix run github:mmxgn/gattn
 ```
@@ -23,4 +43,4 @@ meson setup build && ninja -C build && ./build/gattn
 
 ## Requirements
 
-GTK 4 · libadwaita · VTE (gtk4 variant)
+GTK 4 · libadwaita · VTE (gtk4 variant) · GtkSourceView 5

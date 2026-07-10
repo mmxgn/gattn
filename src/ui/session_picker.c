@@ -13,7 +13,7 @@ typedef struct {
     char            dir[512];
 } ActionData;
 
-/* ── claude session discovery ── */
+/* -- claude session discovery -- */
 
 /* ~/.claude projects use the abs path with every '/' replaced by '-' */
 static char *
@@ -42,18 +42,28 @@ list_claude_sessions(const char *project_dir)
 
     GPtrArray  *arr = g_ptr_array_new_with_free_func(g_free);
     const char *name;
-    while ((name = g_dir_read_name(dir)))
-        if (g_str_has_suffix(name, ".jsonl"))
-            g_ptr_array_add(arr, g_strndup(name, strlen(name) - 6));
+    while ((name = g_dir_read_name(dir))) {
+        if (!g_str_has_suffix(name, ".jsonl"))
+            continue;
+        /* Refuse dotfile-shaped entries (defensive; the only real escapes in a POSIX
+           filename are `.` and `..`, both of which start with `.`). */
+        if (name[0] == '.')
+            continue;
+        g_ptr_array_add(arr, g_strndup(name, strlen(name) - 6));
+    }
     g_dir_close(dir);
     g_ptr_array_add(arr, NULL);
     return (char **)g_ptr_array_free(arr, FALSE);
 }
 
-/* Returns "YYYY-MM-DD HH:MM" for the .jsonl file mtime, or "unknown". Caller frees. */
-static char *
-session_mtime(const char *project_dir, const char *session_id)
+/* Fetch mtime as unix seconds + formatted "YYYY-MM-DD HH:MM" (unknown/0 on failure).
+   Caller frees *out_str. */
+static void
+session_mtime(const char *project_dir, const char *session_id, guint64 *out_unix, char **out_str)
 {
+    *out_unix = 0;
+    *out_str  = g_strdup("unknown");
+
     char *key = encode_project_path(project_dir);
     char *path
         = g_strdup_printf("%s/.claude/projects/%s/%s.jsonl", g_get_home_dir(), key, session_id);
@@ -65,16 +75,113 @@ session_mtime(const char *project_dir, const char *session_id)
         = g_file_query_info(f, G_FILE_ATTRIBUTE_TIME_MODIFIED, G_FILE_QUERY_INFO_NONE, NULL, NULL);
     g_object_unref(f);
     if (!info)
-        return g_strdup("unknown");
+        return;
 
+    *out_unix     = g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
     GDateTime *dt = g_file_info_get_modification_date_time(info);
     g_object_unref(info);
-    if (!dt)
-        return g_strdup("unknown");
+    if (dt) {
+        g_free(*out_str);
+        *out_str = g_date_time_format(dt, "%Y-%m-%d %H:%M");
+        g_date_time_unref(dt);
+    }
+}
 
-    char *str = g_date_time_format(dt, "%Y-%m-%d %H:%M");
-    g_date_time_unref(dt);
-    return str;
+/* Extract the first user message from a session's .jsonl and return it as a title.
+   Scans lines for {"type":"user",...,"message":{..."content":"..."...}} and unescapes the
+   common JSON string escapes we care about. Returns NULL if nothing usable found. */
+static char *
+session_title(const char *project_dir, const char *session_id)
+{
+    char *key = encode_project_path(project_dir);
+    char *path
+        = g_strdup_printf("%s/.claude/projects/%s/%s.jsonl", g_get_home_dir(), key, session_id);
+    g_free(key);
+
+    char    *contents = NULL;
+    gsize    len      = 0;
+    gboolean ok       = g_file_get_contents(path, &contents, &len, NULL);
+    g_free(path);
+    if (!ok)
+        return NULL;
+
+    char       *title = NULL;
+    const char *p     = contents;
+    while (p && *p) {
+        const char *nl = strchr(p, '\n');
+        gsize       ll = nl ? (gsize)(nl - p) : strlen(p);
+        if (ll > 12 && strstr(p, "\"type\":\"user\"") && strstr(p, "\"role\":\"user\"")) {
+            /* Find the content field within this line only. */
+            const char *needle = "\"content\":\"";
+            const char *c      = g_strstr_len(p, ll, needle);
+            if (c) {
+                c += strlen(needle);
+                GString    *s   = g_string_new(NULL);
+                const char *end = p + ll;
+                while (c < end && *c != '"') {
+                    if (*c == '\\' && c + 1 < end) {
+                        switch (c[1]) {
+                        case 'n':
+                        case 'r':
+                        case 't':
+                            g_string_append_c(s, ' ');
+                            break;
+                        case '"':
+                            g_string_append_c(s, '"');
+                            break;
+                        case '\\':
+                            g_string_append_c(s, '\\');
+                            break;
+                        case '/':
+                            g_string_append_c(s, '/');
+                            break;
+                        default:
+                            /* skip unknown escapes (including \uXXXX) rather than break */
+                            break;
+                        }
+                        c += 2;
+                    } else {
+                        g_string_append_c(s, *c);
+                        c++;
+                    }
+                }
+                title = g_string_free(s, FALSE);
+                break;
+            }
+        }
+        if (!nl)
+            break;
+        p = nl + 1;
+    }
+    g_free(contents);
+    if (!title || !*title) {
+        g_free(title);
+        return NULL;
+    }
+    /* Collapse whitespace and truncate for display. */
+    g_strstrip(title);
+    if (g_utf8_strlen(title, -1) > 70) {
+        char *end = g_utf8_offset_to_pointer(title, 70);
+        *end      = '\0';
+        char *dot = g_strdup_printf("%s…", title);
+        g_free(title);
+        title = dot;
+    }
+    return title;
+}
+
+typedef struct {
+    const char *id;
+    guint64     mtime;
+    char       *mtime_str;
+} SessionEntry;
+
+static int
+cmp_entry_desc(const void *a, const void *b)
+{
+    guint64 ma = ((const SessionEntry *)a)->mtime;
+    guint64 mb = ((const SessionEntry *)b)->mtime;
+    return (mb > ma) - (mb < ma);
 }
 
 /* Forward declaration — show_session_list needs make_action_row and make_listbox */
@@ -87,6 +194,15 @@ show_session_list(const char *dir, SessionPickedFn picked, gpointer picked_data,
                   GtkWindow *parent_win)
 {
     char **sessions = list_claude_sessions(dir);
+
+    /* One session? Skip the list — resume it directly. */
+    if (sessions && sessions[0] && !sessions[1]) {
+        char cmd[128];
+        g_snprintf(cmd, sizeof(cmd), "claude --resume %s", sessions[0]);
+        picked(cmd, dir, picked_data);
+        g_strfreev(sessions);
+        return;
+    }
 
     const char *base = strrchr(dir, '/');
     const char *name = (base && base[1]) ? base + 1 : dir;
@@ -118,21 +234,30 @@ show_session_list(const char *dir, SessionPickedFn picked, gpointer picked_data,
         gtk_widget_set_margin_top(lbl, 20);
         gtk_box_append(GTK_BOX(inner), lbl);
     } else {
-        GtkWidget *lb = make_listbox();
-        for (int i = 0; sessions[i]; i++) {
-            char *mtime = session_mtime(dir, sessions[i]);
-            char  sub[128];
-            g_snprintf(sub, sizeof(sub), "Last active: %s", mtime);
-            g_free(mtime);
+        int n = 0;
+        while (sessions[n])
+            n++;
+        SessionEntry *entries = g_new(SessionEntry, n);
+        for (int i = 0; i < n; i++) {
+            entries[i].id = sessions[i];
+            session_mtime(dir, sessions[i], &entries[i].mtime, &entries[i].mtime_str);
+        }
+        qsort(entries, n, sizeof(SessionEntry), cmp_entry_desc);
 
-            /* Show first 8 chars of UUID as short label */
+        GtkWidget *lb = make_listbox();
+        for (int i = 0; i < n; i++) {
+            /* First 8 chars of UUID as compact id. */
             char short_id[40];
-            g_strlcpy(short_id, sessions[i], sizeof(short_id));
+            g_strlcpy(short_id, entries[i].id, sizeof(short_id));
             if (strlen(short_id) > 8)
                 short_id[8] = '\0';
 
+            char *title = session_title(dir, entries[i].id);
+            char  sub[256];
+            g_snprintf(sub, sizeof(sub), "%s · %s", short_id, entries[i].mtime_str);
+
             char cmd[128];
-            g_snprintf(cmd, sizeof(cmd), "claude --resume %s", sessions[i]);
+            g_snprintf(cmd, sizeof(cmd), "claude --resume %s", entries[i].id);
 
             ActionData *ad  = g_new(ActionData, 1);
             ad->dialog      = dialog;
@@ -142,9 +267,13 @@ show_session_list(const char *dir, SessionPickedFn picked, gpointer picked_data,
             g_strlcpy(ad->cmd, cmd, sizeof(ad->cmd));
             g_strlcpy(ad->dir, dir, sizeof(ad->dir));
 
-            gtk_list_box_append(GTK_LIST_BOX(lb), make_action_row("document-open-recent-symbolic",
-                                                                  short_id, sub, ad));
+            gtk_list_box_append(GTK_LIST_BOX(lb),
+                                make_action_row("document-open-recent-symbolic",
+                                                title ? title : short_id, sub, ad));
+            g_free(title);
+            g_free(entries[i].mtime_str);
         }
+        g_free(entries);
         gtk_box_append(GTK_BOX(inner), lb);
     }
     g_strfreev(sessions);
@@ -434,9 +563,9 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
         *ad            = tmpl;
         g_strlcpy(ad->cmd, fixed[i].cmd ? fixed[i].cmd : "", sizeof(ad->cmd));
 
-        /* ponytail: fixed Resume row always prompts for a folder;
-           per-dir resume lives on recent rows. */
-        if (i != 1 && initial_dir && *initial_dir)
+        /* ponytail: only Open Shell (i==2) inherits the current session's dir;
+           new/resume Claude rows always prompt so the user can pick a project. */
+        if (i == 2 && initial_dir && *initial_dir)
             g_strlcpy(ad->dir, initial_dir, sizeof(ad->dir));
         else
             ad->dir[0] = '\0';

@@ -48,8 +48,8 @@ sessions_save(SessionList *list)
 
     GString *buf = g_string_new(NULL);
     for (int i = 0; i < list->count; i++) {
-        Session *s = &list->items[i];
-        if (s->parent_id != 0 || !s->cwd[0])
+        Session *s = list->items[i];
+        if (!s || s->parent_id != 0 || !s->cwd[0])
             continue;
         g_string_append_printf(buf, "%s|%s\n", s->cmd, s->cwd);
     }

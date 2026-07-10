@@ -2,5 +2,7 @@
 <gresources>
   <gresource prefix="/org/mmxgn/gattn">
     <file>icons/hicolor/scalable/apps/org.mmxgn.gattn.svg</file>
+    <file>icons/scalable/actions/gattn-agent-symbolic.svg</file>
+    <file>icons/scalable/actions/gattn-shell-symbolic.svg</file>
   </gresource>
 </gresources>

@@ -19,8 +19,8 @@
         pname = "gattn";
         version = "0.1.0";
         src = pkgs.lib.cleanSource ./.;
-        nativeBuildInputs = with pkgs; [ meson ninja pkg-config ];
-        buildInputs = [ pkgs.gtk4 pkgs.libadwaita vte-gtk4 ];
+        nativeBuildInputs = with pkgs; [ meson ninja pkg-config wrapGAppsHook4 ];
+        buildInputs = [ pkgs.gtk4 pkgs.libadwaita vte-gtk4 pkgs.gtksourceview5 ];
       };
 
       devShells.${system}.default = pkgs.mkShell {
@@ -30,8 +30,10 @@
           gtk4
           libadwaita
           vte-gtk4
+          gtksourceview5
           meson
           ninja
+          meld
         ];
       };
     };

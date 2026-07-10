@@ -72,6 +72,7 @@ poll_cwd(gpointer data)
             const char *base = strrchr(s->cwd, '/');
             gtk_label_set_text(GTK_LABEL(s->cwd_label), (base && base[1]) ? base + 1 : s->cwd);
         }
+        session_refresh_a11y(s);
     }
     g_free(link);
     return G_SOURCE_CONTINUE;

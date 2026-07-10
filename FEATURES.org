@@ -11,5 +11,14 @@ status dots (gray=idle, green=working, amber=needs-input with attention ring),
 terminal text lines and amber blinking cursor on the right.
 ** DONE Try to design it as an svg
 data/icons/hicolor/scalable/apps/org.mmxgn.gattn.svg
+* DONE I want a better diff viewer that will list the changed files where I can select them, and have syntax highlighting on them
+Split-pane dialog: left = changed files from git diff --name-status HEAD, right = GtkSourceView with diff-language highlighting per selected file.
+* DONE Icons for agents/subagents should be different than icons for shells/processes
+Custom symbolic SVGs in data/icons/ (dual-sparkle for agents, prompt >_ for shells), bundled via GResource, loaded with gtk_image_new_from_resource; fill="currentColor" so existing dot-* CSS classes still tint them by state.
+* DONE I want to implement a search bar where I can quickly visit the session by searching part of the name
+GtkSearchBar on the sidebar top toolbar (Ctrl+F to toggle). Case-insensitive substring filter over session name and cwd; Enter jumps to first visible row.
+* DONE Add clickable links and ability to open_path/file by right clicking if something is a path or a url
+VTE regex on URLs (http/https/ftp/file/www.) and absolute paths; hover shows pointer cursor. Ctrl+left-click opens; right-click menu adds "Open <match>" above Copy/Paste when a match is under the pointer.
+* TODO - Needs Planning - Make interface adaptive (e.g. resizing will hide the names only show icons, resizing more will hide icons as well or maybe show the icons vertically on top of screen). Be absolutely sure you respect Gnome HIG
 * TODO Plan and implement accessibility
 * TODO I want to be able to open ssh sessions/w claude to a machine in the same way

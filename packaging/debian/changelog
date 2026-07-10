@@ -1,5 +1,12 @@
+gattn (0.1.3-1) unstable; urgency=medium
+
+  * Adaptive sidebar, theme + zoom controls, terminal themes, accessibility labels,
+    better diff viewer with Explain/Use-in-prompt, security hardening, and more.
+
+ -- mmxgn  Fri, 10 Jul 2026 00:00:00 +0000
+
 gattn (0.1.0-1) unstable; urgency=medium
 
   * Initial release.
 
- -- mmxgn <etchourdakis@gmail.com>  Wed, 09 Jul 2026 00:00:00 +0000
+ -- mmxgn  Wed, 09 Jul 2026 00:00:00 +0000
