@@ -11,11 +11,8 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
 
-  - repo: local
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v18.1.8
     hooks:
       - id: clang-format
-        name: clang-format
-        language: system
-        entry: clang-format
-        args: [-i, --style=file]
-        types: [c]
+        types_or: [c, c++]
