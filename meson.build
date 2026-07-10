@@ -1,5 +1,7 @@
 project('gattn', 'c', version: '0.1.0', default_options: ['c_std=c11'])
 
+gnome = import('gnome')
+
 deps = [
   dependency('gtk4'),
   dependency('libadwaita-1'),
@@ -12,7 +14,11 @@ install_data('data/org.mmxgn.gattn.desktop',
 install_data('data/icons/hicolor/scalable/apps/org.mmxgn.gattn.svg',
   install_dir: join_paths(get_option('datadir'), 'icons', 'hicolor', 'scalable', 'apps'))
 
+resources = gnome.compile_resources('gattn-resources',
+  'data/gattn.gresource.xml', source_dir: 'data', c_name: 'gattn_resources')
+
 executable('gattn', [
+  resources,
   'src/main.c',
   'src/session.c',
   'src/state_detector.c',

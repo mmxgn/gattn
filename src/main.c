@@ -499,6 +499,9 @@ on_activate(AdwApplication *app_obj, gpointer data)
     (void)data;
     app.gapp = G_APPLICATION(app_obj);
 
+    gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()),
+                                     "/org/mmxgn/gattn/icons");
+
     GtkCssProvider *provider = gtk_css_provider_new();
     gtk_css_provider_load_from_string(provider, CSS);
     gtk_style_context_add_provider_for_display(gdk_display_get_default(),
