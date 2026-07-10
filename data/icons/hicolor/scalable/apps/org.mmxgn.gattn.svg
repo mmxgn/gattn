@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="#1e1e2e"/>
+
+  <!-- Sidebar panel -->
+  <rect x="8" y="8" width="38" height="112" rx="14" fill="#181825"/>
+
+  <!-- Idle dot -->
+  <circle cx="27" cy="36" r="7" fill="#6c7086"/>
+
+  <!-- Working dot (green) -->
+  <circle cx="27" cy="64" r="7" fill="#a6e3a1"/>
+
+  <!-- Needs-input dot (amber) + attention ring -->
+  <circle cx="27" cy="92" r="12" fill="none" stroke="#f9e2af" stroke-width="2.5" opacity="0.35"/>
+  <circle cx="27" cy="92" r="7" fill="#f9e2af"/>
+
+  <!-- Terminal lines -->
+  <rect x="56" y="32" width="58" height="7" rx="3.5" fill="#cdd6f4" opacity="0.7"/>
+  <rect x="56" y="48" width="42" height="7" rx="3.5" fill="#cdd6f4" opacity="0.4"/>
+  <rect x="56" y="64" width="52" height="7" rx="3.5" fill="#cdd6f4" opacity="0.4"/>
+  <rect x="56" y="80" width="18" height="7" rx="3.5" fill="#cdd6f4" opacity="0.4"/>
+
+  <!-- Blinking cursor (amber) -->
+  <rect x="78" y="80" width="10" height="7" rx="2" fill="#f9e2af"/>
+</svg>

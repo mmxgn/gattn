@@ -2,7 +2,7 @@
 Name=gattn
 Comment=Attention hub for GNOME
 Exec=gattn
-Icon=utilities-terminal
+Icon=org.mmxgn.gattn
 Type=Application
 Categories=GNOME;GTK;Utility;
 X-GNOME-UsesNotifications=true

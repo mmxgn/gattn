@@ -9,6 +9,9 @@ deps = [
 install_data('data/org.mmxgn.gattn.desktop',
   install_dir: join_paths(get_option('datadir'), 'applications'))
 
+install_data('data/icons/hicolor/scalable/apps/org.mmxgn.gattn.svg',
+  install_dir: join_paths(get_option('datadir'), 'icons', 'hicolor', 'scalable', 'apps'))
+
 executable('gattn', [
   'src/main.c',
   'src/session.c',

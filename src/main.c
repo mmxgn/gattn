@@ -548,6 +548,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     AdwApplicationWindow *win
         = ADW_APPLICATION_WINDOW(adw_application_window_new(GTK_APPLICATION(app_obj)));
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
+    gtk_window_set_icon_name(GTK_WINDOW(win), "org.mmxgn.gattn");
     adw_application_window_set_content(win, GTK_WIDGET(app.overlay));
     gtk_window_present(GTK_WINDOW(win));
 
