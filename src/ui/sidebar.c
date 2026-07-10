@@ -306,7 +306,12 @@ make_row(Session *s)
     gtk_label_set_xalign(GTK_LABEL(name_lbl), 0.0f);
     s->name_label = name_lbl;
 
-    GtkWidget *cwd_lbl = gtk_label_new("~");
+    char cwd_display[256] = "~";
+    if (s->cwd[0]) {
+        const char *base = strrchr(s->cwd, '/');
+        g_strlcpy(cwd_display, (base && base[1]) ? base + 1 : s->cwd, sizeof(cwd_display));
+    }
+    GtkWidget *cwd_lbl = gtk_label_new(cwd_display);
     gtk_label_set_xalign(GTK_LABEL(cwd_lbl), 0.0f);
     gtk_label_set_ellipsize(GTK_LABEL(cwd_lbl), PANGO_ELLIPSIZE_START);
     gtk_widget_add_css_class(cwd_lbl, "caption");
@@ -322,7 +327,7 @@ make_row(Session *s)
     gtk_box_append(GTK_BOX(box), labels);
     gtk_box_append(GTK_BOX(box), make_icon_btn("folder-open-symbolic", "Open folder",
                                                G_CALLBACK(on_folder_btn_clicked), s));
-    gtk_box_append(GTK_BOX(box), make_icon_btn("git-symbolic", "Show diff (Ctrl+Shift+D)",
+    gtk_box_append(GTK_BOX(box), make_icon_btn("vcs-locally-modified-symbolic", "Show diff (Ctrl+Shift+D)",
                                                G_CALLBACK(on_diff_btn_clicked), s));
     gtk_box_append(GTK_BOX(box), make_icon_btn("window-close-symbolic", "Close session (Ctrl+W)",
                                                G_CALLBACK(on_close_btn_clicked), s));
@@ -367,8 +372,9 @@ make_shortcut_bar(void)
         const char *key;
         const char *action;
     } hints[] = {
-        { "^N", "New" },         { "^W", "Close" }, { "^↓/⇥", "Next" }, { "^↑/⇧⇥", "Prev" },
-        { "^⇧A", "Unattended" }, { "^G", "Grid" },  { "^⇧D", "Diff" },
+        { "^N", "New" },    { "^⇧W", "Close" },  { "^↓/⇥", "Next" }, { "^↑/⇧⇥", "Prev" },
+        { "^PgUp", "Top" }, { "^PgDn", "Bot" }, { "^⇧A", "Unattended" },
+        { "^G", "Grid" },   { "^⇧D", "Diff" },
     };
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
@@ -455,6 +461,7 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
 
     GtkWidget *lb = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(lb), GTK_SELECTION_SINGLE);
+    gtk_widget_add_css_class(lb, "navigation-sidebar");
     g_signal_connect(lb, "row-selected", G_CALLBACK(on_row_selected), stack);
 
     GtkWidget *scroll = gtk_scrolled_window_new();

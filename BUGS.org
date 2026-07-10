@@ -1,0 +1,25 @@
+#+TITLE: Bugs
+
+* DONE Remove Ctrl+W for closing, it interferes with emacs
+Changed to Ctrl+Shift+W
+
+* DONE The "diff" icon on the side bar is still missing, make sure something is available before using it.
+Changed to vcs-locally-modified-symbolic
+
+* DONE When I press ctrl -> down/up, I want to move to the next ~session~, not subagent or subprocess.
+on_move_session now collects top-level rows only and skips subagents
+
+* DONE Subagents and sub-processes seem to be shown in the wrong directory on the sidebar (the directory path under their name)
+Copy parent cwd to child on spawn; initialize cwd_label from session.cwd; start cwd polling for children
+
+* DONE When I click new shell, I want to spawn it on the same directory as the selected process/agent and not be prompted on opening a directory
+session_picker_show now takes initial_dir; on_new_session passes selected session cwd
+
+* DONE Dark mode does not work, it seems half the window is in light mode still half in dark mode
+Added navigation-sidebar CSS class to the sidebar listbox
+
+* DONE During navigation, if I am at the top process in the sidebar and press ctrl up, I want to move to the bottom one
+on_move_session uses modulo wrap-around
+
+* DONE With ctrl+pg_up/pg_down I want to move to the top/bottom in the list immediatelly
+Added jump-first (Ctrl+PgUp) and jump-last (Ctrl+PgDn) actions

@@ -173,6 +173,12 @@ on_contents_changed(VteTerminal *term, gpointer data)
 }
 
 void
+state_detector_start_cwd(Session *s)
+{
+    s->cwd_timer_id = g_timeout_add_seconds(3, poll_cwd, s);
+}
+
+void
 state_detector_start(Session *s)
 {
     char dir[480];

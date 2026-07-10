@@ -376,7 +376,8 @@ make_recent_row(const char *path, const ActionData *tmpl)
 }
 
 void
-session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data)
+session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data,
+                    const char *initial_dir)
 {
     AdwDialog *dialog = ADW_DIALOG(adw_dialog_new());
     adw_dialog_set_title(dialog, "New Session");
@@ -415,7 +416,9 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
     gtk_widget_set_margin_bottom(inner, 16);
 
     char      **recents    = recents_list();
-    const char *resume_dir = (recents && recents[0]) ? recents[0] : "";
+    const char *resume_dir = (initial_dir && *initial_dir) ? initial_dir
+                             : (recents && recents[0])      ? recents[0]
+                                                            : "";
 
     gtk_box_append(GTK_BOX(inner), make_section_label("Open"));
     GtkWidget *action_lb = make_listbox();
@@ -437,12 +440,13 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
         const char *subtitle     = fixed[i].subtitle;
         char        dyn_sub[256] = "";
         if (i == 1 && resume_dir[0]) {
-            /* pre-fill with most recent project so click fires immediately */
             g_strlcpy(ad->dir, resume_dir, sizeof(ad->dir));
             const char *base = strrchr(resume_dir, '/');
             const char *name = (base && base[1]) ? base + 1 : resume_dir;
             g_snprintf(dyn_sub, sizeof(dyn_sub), "Continue session in %s", name);
             subtitle = dyn_sub;
+        } else if (i != 1 && initial_dir && *initial_dir) {
+            g_strlcpy(ad->dir, initial_dir, sizeof(ad->dir));
         } else {
             ad->dir[0] = '\0';
         }

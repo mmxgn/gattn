@@ -115,14 +115,39 @@ on_close_session(GSimpleAction *a, GVariant *p, gpointer d)
 static void
 on_move_session(int delta)
 {
-    GtkListBox    *lb  = get_lb();
-    GtkListBoxRow *row = gtk_list_box_get_selected_row(lb);
-    if (!row)
+    GtkListBox *lb = get_lb();
+
+    /* collect top-level session rows only */
+    GtkListBoxRow *tops[32];
+    int            ntops = 0;
+    for (int i = 0; ntops < 32; i++) {
+        GtkListBoxRow *r = gtk_list_box_get_row_at_index(lb, i);
+        if (!r)
+            break;
+        Session *s = g_object_get_data(G_OBJECT(r), "gattn-session");
+        if (s && s->parent_id == 0)
+            tops[ntops++] = r;
+    }
+    if (!ntops)
         return;
-    int            idx  = gtk_list_box_row_get_index(row);
-    GtkListBoxRow *next = gtk_list_box_get_row_at_index(lb, idx + delta);
-    if (next)
-        gtk_list_box_select_row(lb, next);
+
+    /* find current top-level position (handle subagent rows too) */
+    GtkListBoxRow *sel = gtk_list_box_get_selected_row(lb);
+    int            cur = 0;
+    if (sel) {
+        Session *ss        = g_object_get_data(G_OBJECT(sel), "gattn-session");
+        int      target_id = ss ? (ss->parent_id ? ss->parent_id : ss->id) : -1;
+        for (int i = 0; i < ntops; i++) {
+            Session *ts = g_object_get_data(G_OBJECT(tops[i]), "gattn-session");
+            if (ts && ts->id == target_id) {
+                cur = i;
+                break;
+            }
+        }
+    }
+
+    int next = ((cur + delta) % ntops + ntops) % ntops;
+    gtk_list_box_select_row(lb, tops[next]);
 }
 
 static void
@@ -141,6 +166,45 @@ on_prev_session(GSimpleAction *a, GVariant *p, gpointer d)
     (void)p;
     (void)d;
     on_move_session(-1);
+}
+
+static void
+on_jump_first(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    GtkListBox *lb = get_lb();
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, i);
+        if (!row)
+            break;
+        Session *s = g_object_get_data(G_OBJECT(row), "gattn-session");
+        if (s && s->parent_id == 0) {
+            gtk_list_box_select_row(lb, row);
+            break;
+        }
+    }
+}
+
+static void
+on_jump_last(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    GtkListBox    *lb   = get_lb();
+    GtkListBoxRow *last = NULL;
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, i);
+        if (!row)
+            break;
+        Session *s = g_object_get_data(G_OBJECT(row), "gattn-session");
+        if (s && s->parent_id == 0)
+            last = row;
+    }
+    if (last)
+        gtk_list_box_select_row(lb, last);
 }
 
 static void
@@ -202,7 +266,10 @@ on_child_spawned(int child_pid, int parent_id, gpointer data)
     child->parent_id = parent_id;
     child->pid       = child_pid;
     child->terminal  = parent->terminal;
+    if (parent->cwd[0])
+        g_strlcpy(child->cwd, parent->cwd, sizeof(child->cwd));
     sidebar_add_session(app.split, child);
+    state_detector_start_cwd(child);
 }
 
 static void
@@ -213,6 +280,7 @@ on_child_exited(int child_pid, int parent_id, gpointer data)
     for (int i = 0; i < sessions.count; i++) {
         if (sessions.items[i].pid == child_pid && sessions.items[i].parent_id != 0) {
             int id = sessions.items[i].id;
+            state_detector_stop(&sessions.items[i]);
             sidebar_remove_session(app.split, id);
             session_destroy(&sessions, id);
             return;
@@ -239,6 +307,11 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
         if (sessions.items[i].parent_id == id && child_count < 32)
             child_ids[child_count++] = sessions.items[i].id;
     for (int i = 0; i < child_count; i++) {
+        for (int j = 0; j < sessions.count; j++)
+            if (sessions.items[j].id == child_ids[i]) {
+                state_detector_stop(&sessions.items[j]);
+                break;
+            }
         sidebar_remove_session(app.split, child_ids[i]);
         session_destroy(&sessions, child_ids[i]);
     }
@@ -290,8 +363,10 @@ static void
 on_new_session(GtkWidget *split, gpointer data)
 {
     (void)data;
-    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(app.gapp));
-    session_picker_show(GTK_WIDGET(win), on_session_picked, split);
+    GtkWindow  *win = gtk_application_get_active_window(GTK_APPLICATION(app.gapp));
+    Session    *s   = selected_session();
+    const char *cwd = (s && s->cwd[0]) ? s->cwd : NULL;
+    session_picker_show(GTK_WIDGET(win), on_session_picked, split, cwd);
 }
 
 static void
@@ -446,6 +521,8 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "next-session", G_CALLBACK(on_next_session), NULL);
     register_action(map, "prev-session", G_CALLBACK(on_prev_session), NULL);
     register_action(map, "next-unattended", G_CALLBACK(on_next_unattended), NULL);
+    register_action(map, "jump-first", G_CALLBACK(on_jump_first), NULL);
+    register_action(map, "jump-last", G_CALLBACK(on_jump_last), NULL);
     register_action(map, "raise", G_CALLBACK(on_raise), app_obj);
     register_action(map, "show-diff", G_CALLBACK(on_show_diff), NULL);
     register_action(map, "focus-sidebar", G_CALLBACK(on_focus_sidebar), NULL);
@@ -466,7 +543,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
     adw_application_window_set_content(win, GTK_WIDGET(app.overlay));
     gtk_window_present(GTK_WINDOW(win));
-    session_picker_show(GTK_WIDGET(win), on_session_picked, app.split);
+    session_picker_show(GTK_WIDGET(win), on_session_picked, app.split, NULL);
 }
 
 int
@@ -482,10 +559,12 @@ main(int argc, char *argv[])
     } bindings[] = {
         { "app.toggle-grid", "<Control>g" },
         { "app.new-session", "<Control>n" },
-        { "app.close-session", "<Control>w" },
+        { "app.close-session", "<Control><Shift>w" },
         { "app.next-session", "<Control>Tab" },
         { "app.prev-session", "<Control><Shift>Tab" },
         { "app.next-unattended", "<Control><Shift>a" },
+        { "app.jump-first", "<Control>Prior" },
+        { "app.jump-last", "<Control>Next" },
         { "app.exit-grid", "Escape" },
         { "app.show-diff", "<Control><Shift>d" },
         { "app.focus-sidebar", "<Control>Left" },
