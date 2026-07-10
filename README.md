@@ -10,6 +10,46 @@ Monitors multiple Claude Code sessions in a sidebar, highlights when one needs y
 
 ![screenshot](img/screenshot.png)
 
+## Features
+
+### Attention grabbing
+
+Session dots in the sidebar change colour when a session changes state — idle, working, needs input, or done. When gattn is not in focus, a desktop notification fires so you know exactly which session (or shell process) needs you, without watching a terminal.
+
+### Keyboard-only navigation
+
+Everything is reachable without a mouse:
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+N` | New session |
+| `Ctrl+Shift+W` | Close session |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous session |
+| `Ctrl+↑` / `Ctrl+↓` | Next / previous session |
+| `Ctrl+←` / `Ctrl+→` | Focus sidebar / terminal |
+| `Ctrl+PgUp` / `Ctrl+PgDn` | Jump to first / last session |
+| `Ctrl+Shift+A` | Jump to next unattended session |
+| `F2` | Rename session |
+| `Ctrl+F` | Search / filter sessions |
+| `Ctrl+G` | Toggle grid view |
+| `Ctrl+Shift+D` | Show diff |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset terminal font |
+| `F11` | Fullscreen |
+
+### Grid view
+
+![grid view](img/grid.png)
+
+`Ctrl+G` switches to a tiled overview of all open sessions at once, so you can spot activity across many agents at a glance.
+
+### Diff
+
+`Ctrl+Shift+D` (or the git icon in the sidebar) runs `git diff HEAD` in the session's live working directory and shows the result with syntax highlighting — red for deletions, green for additions.
+
+![diff view](img/diff.png)
+
+<!-- TODO: explain / reuse buttons — open the diff in Claude to get an explanation or paste it into a new session -->
+
 ## Install
 
 Grab the latest asset from the [releases page](https://github.com/mmxgn/gattn/releases/latest).
