@@ -16,6 +16,7 @@ struct Session {
     int                   id;
     int                   parent_id; /* 0 = top-level */
     char                  name[64];
+    char                  cmd[128];
     char                  cwd[256];
     SessionState          state;
     GtkWidget            *terminal;   /* VteTerminal */

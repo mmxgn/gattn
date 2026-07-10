@@ -3,6 +3,7 @@
 #include "prefs_store.h"
 #include "recents.h"
 #include "session.h"
+#include "sessions_store.h"
 #include "state_detector.h"
 #include "ui/grid.h"
 #include "ui/prefs.h"
@@ -318,6 +319,7 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
 
     sidebar_remove_session(app.split, id);
     session_destroy(&sessions, id);
+    sessions_save(&sessions);
 }
 
 /* ── session creation ── */
@@ -342,8 +344,12 @@ add_session(GtkWidget *split, const char *cmd, const char *working_dir)
     s->on_child_spawned_data = NULL;
     s->on_child_exited       = on_child_exited;
     s->on_child_exited_data  = NULL;
-    if (working_dir)
+    if (cmd && *cmd)
+        g_strlcpy(s->cmd, cmd, sizeof(s->cmd));
+    if (working_dir) {
+        g_strlcpy(s->cwd, working_dir, sizeof(s->cwd));
         recents_add(working_dir);
+    }
     session_spawn(s, (cmd && *cmd) ? cmd : NULL, working_dir);
     GattnPrefs prefs = prefs_load();
     apply_prefs_to_terminal(VTE_TERMINAL(s->terminal), &prefs);
@@ -351,6 +357,7 @@ add_session(GtkWidget *split, const char *cmd, const char *working_dir)
     state_detector_start(s);
     notify_watch(s, app.overlay, app.gapp);
     sidebar_add_session(split, s);
+    sessions_save(&sessions);
 }
 
 static void
@@ -543,7 +550,16 @@ on_activate(AdwApplication *app_obj, gpointer data)
     gtk_window_set_default_size(GTK_WINDOW(win), 1200, 700);
     adw_application_window_set_content(win, GTK_WIDGET(app.overlay));
     gtk_window_present(GTK_WINDOW(win));
-    session_picker_show(GTK_WIDGET(win), on_session_picked, app.split, NULL);
+
+    SavedSession saved[32];
+    int          nsaved = sessions_load(saved, 32);
+    if (nsaved > 0) {
+        for (int i = 0; i < nsaved; i++)
+            add_session(app.split, saved[i].cmd[0] ? saved[i].cmd : NULL,
+                        saved[i].dir[0] ? saved[i].dir : NULL);
+    } else {
+        session_picker_show(GTK_WIDGET(win), on_session_picked, app.split, NULL);
+    }
 }
 
 int

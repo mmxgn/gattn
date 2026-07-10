@@ -16,6 +16,7 @@ executable('gattn', [
   'src/notify.c',
   'src/recents.c',
   'src/prefs_store.c',
+  'src/sessions_store.c',
   'src/ui/sidebar.c',
   'src/ui/prefs.c',
   'src/ui/grid.c',

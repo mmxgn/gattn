@@ -20,6 +20,7 @@ session_create(SessionList *list, const char *name)
     s->terminal              = NULL;
     s->dot                   = NULL;
     s->cwd_label             = NULL;
+    s->cmd[0]                = '\0';
     s->cwd[0]                = '\0';
     s->pid                   = 0;
     s->poll_id               = 0;

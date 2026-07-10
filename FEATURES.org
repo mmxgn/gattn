@@ -1,8 +1,11 @@
 #+TITLE: Features
 
-* TODO Make it so that I can save/load whole sessions (e.g. open the claudes on the same sessions on the same folders etc)
+* DONE Make it so that I can save/load whole sessions (e.g. open the claudes on the same sessions on the same folders etc)
+sessions_store.c saves cmd+dir per session to $XDG_DATA_HOME/gattn/sessions.txt on add/remove.
+On launch, sessions are restored automatically; picker shown only when no saved sessions exist.
 * TODO Add a program icon
 ** TODO First, add a placeholder icon
 ** TODO Recommend a design for an icon
 ** TODO Try to design it as an svg
+* TODO Plan and implement accessibility
 * TODO I want to be able to open ssh sessions/w claude to a machine in the same way
