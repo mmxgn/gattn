@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build gcc pkg-config \
-            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev
 
       - name: Build and install into AppDir
         run: |
@@ -57,7 +57,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential debhelper meson ninja-build \
-            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
+            libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev libgtksourceview-5-dev
 
       - name: Build .deb
         run: |
@@ -78,7 +78,7 @@ jobs:
       - name: Install deps
         run: |
           dnf install -y meson ninja-build gcc rpm-build \
-            pkgconfig gtk4-devel libadwaita-devel vte291-gtk4-devel
+            pkgconfig gtk4-devel libadwaita-devel vte291-gtk4-devel gtksourceview5-devel
 
       - name: Build .rpm
         run: |

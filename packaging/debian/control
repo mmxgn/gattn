@@ -3,7 +3,7 @@ Section: gnome
 Priority: optional
 Maintainer: mmxgn
 Build-Depends: debhelper-compat (= 13), meson, ninja-build, gcc,
-  libgtk-4-dev, libadwaita-1-dev, libvte-2.91-gtk4-dev
+  libgtk-4-dev, libadwaita-1-dev, libvte-2.91-gtk4-dev, libgtksourceview-5-dev
 
 Package: gattn
 Architecture: any

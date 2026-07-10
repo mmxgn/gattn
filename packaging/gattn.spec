@@ -13,6 +13,7 @@ BuildRequires:  gcc
 BuildRequires:  pkgconfig(gtk4)
 BuildRequires:  pkgconfig(libadwaita-1)
 BuildRequires:  pkgconfig(vte-2.91-gtk4)
+BuildRequires:  pkgconfig(gtksourceview-5)
 
 Requires:       gtk4
 Requires:       libadwaita
