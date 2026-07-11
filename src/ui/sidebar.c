@@ -755,12 +755,17 @@ make_row(Session *s)
     }
     s->name_label = name_lbl;
 
-    GtkWidget *labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_hexpand(labels, TRUE);
-    gtk_box_append(GTK_BOX(labels), name_lbl);
-
     GtkWidget *cwd_lbl = NULL;
-    if (!s->parent_id) {
+    GtkWidget *labels  = NULL;
+    if (s->is_robot) {
+        /* single-line: put name_lbl directly, no vbox */
+        gtk_box_append(GTK_BOX(box), dot);
+        gtk_box_append(GTK_BOX(box), name_lbl);
+    } else {
+        labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_set_hexpand(labels, TRUE);
+        gtk_box_append(GTK_BOX(labels), name_lbl);
+
         char cwd_display[256] = "~";
         if (s->cwd[0]) {
             const char *base = strrchr(s->cwd, '/');
@@ -773,10 +778,9 @@ make_row(Session *s)
         gtk_widget_add_css_class(cwd_lbl, "dim-label");
         s->cwd_label = cwd_lbl;
         gtk_box_append(GTK_BOX(labels), cwd_lbl);
+        gtk_box_append(GTK_BOX(box), dot);
+        gtk_box_append(GTK_BOX(box), labels);
     }
-
-    gtk_box_append(GTK_BOX(box), dot);
-    gtk_box_append(GTK_BOX(box), labels);
 
     GtkWidget *actions = NULL;
     if (!s->parent_id) {
@@ -1053,6 +1057,10 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
 
     GtkWidget *sidebar_header = adw_header_bar_new();
     adw_header_bar_set_title_widget(ADW_HEADER_BAR(sidebar_header), gtk_label_new("gattn"));
+    GtkWidget *search_btn = gtk_toggle_button_new();
+    gtk_button_set_icon_name(GTK_BUTTON(search_btn), "system-search-symbolic");
+    gtk_widget_set_tooltip_text(search_btn, "Search sessions (Ctrl+F)");
+    adw_header_bar_pack_end(ADW_HEADER_BAR(sidebar_header), search_btn);
 
     GtkWidget *search_entry = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search_entry), "Search sessions…");
@@ -1060,6 +1068,8 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
     gtk_search_bar_set_child(GTK_SEARCH_BAR(search_bar), search_entry);
     gtk_search_bar_connect_entry(GTK_SEARCH_BAR(search_bar), GTK_EDITABLE(search_entry));
     gtk_search_bar_set_show_close_button(GTK_SEARCH_BAR(search_bar), TRUE);
+    g_object_bind_property(search_btn, "active", search_bar, "search-mode-enabled",
+                           G_BINDING_BIDIRECTIONAL);
 
     gtk_list_box_set_filter_func(GTK_LIST_BOX(lb), sidebar_row_filter, search_entry, NULL);
     g_signal_connect_swapped(search_entry, "search-changed",
