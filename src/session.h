@@ -5,6 +5,7 @@ typedef enum {
     SESSION_IDLE,
     SESSION_WORKING,
     SESSION_NEEDS_INPUT,
+    SESSION_BLOCKED, /* blocked on a question needing user decision */
     SESSION_DONE,
 } SessionState;
 
@@ -15,6 +16,7 @@ typedef void (*SessionChildSpawnedFn)(int child_pid, int parent_id, gpointer dat
 struct Session {
     int                   id;
     int                   parent_id; /* 0 = top-level */
+    gboolean              is_robot;  /* child of an agent session */
     char                  name[64];
     char                  cmd[128];
     char                  cwd[256];

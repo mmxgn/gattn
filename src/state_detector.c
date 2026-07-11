@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <vte/vte.h>
 
 /* Hook path: any process can write "working\n", "needs_input\n", etc. here */
@@ -48,8 +49,28 @@ on_silence(gpointer data)
 {
     Session *s       = data;
     s->idle_timer_id = 0;
-    if (s->state == SESSION_WORKING)
-        session_set_state(s, SESSION_NEEDS_INPUT);
+    if (s->state != SESSION_WORKING)
+        return G_SOURCE_REMOVE;
+
+    SessionState next = SESSION_NEEDS_INPUT;
+
+    /* if the last visible terminal line contains a '?' it's a question prompt */
+    if (s->terminal) {
+        VteTerminal *term = VTE_TERMINAL(s->terminal);
+        long         col, row;
+        vte_terminal_get_cursor_position(term, &col, &row);
+        /* read from a few lines above cursor to capture the prompt line */
+        long  start = row > 5 ? row - 5 : 0;
+        char *text
+            = vte_terminal_get_text_range_format(term, VTE_FORMAT_TEXT, start, 0, row, col, NULL);
+        if (text) {
+            if (strstr(text, "?"))
+                next = SESSION_BLOCKED;
+            g_free(text);
+        }
+    }
+
+    session_set_state(s, next);
     return G_SOURCE_REMOVE;
 }
 
@@ -75,6 +96,49 @@ poll_cwd(gpointer data)
         session_refresh_a11y(s);
     }
     g_free(link);
+    return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+poll_proc_state(gpointer data)
+{
+    Session *s = data;
+    if (s->pid == 0)
+        return G_SOURCE_CONTINUE;
+
+    char path[64];
+    g_snprintf(path, sizeof(path), "/proc/%d/stat", s->pid);
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        session_set_state(s, SESSION_DONE);
+        return G_SOURCE_CONTINUE;
+    }
+    /* field 3 is the state char, after the comm field in parens */
+    int  pid;
+    char comm[256];
+    char state;
+    fscanf(f, "%d %255s %c", &pid, comm, &state);
+    fclose(f);
+
+    if (state == 'R') {
+        session_set_state(s, SESSION_WORKING);
+    } else if (state == 'Z') {
+        session_set_state(s, SESSION_DONE);
+    } else {
+        /* distinguish "blocked on stdin read" (permission prompt) from other sleeps */
+        char spath[64];
+        g_snprintf(spath, sizeof(spath), "/proc/%d/syscall", s->pid);
+        char        *sc   = NULL;
+        SessionState next = SESSION_IDLE;
+        if (g_file_get_contents(spath, &sc, NULL, NULL) && sc) {
+            long nr = -1, fd = -1;
+            if (sscanf(sc, "%ld %lx", &nr, &fd) == 2 && nr == __NR_read && fd == 0)
+                next = SESSION_BLOCKED;
+            g_free(sc);
+        }
+        session_set_state(s, next);
+    }
+
     return G_SOURCE_CONTINUE;
 }
 
@@ -170,13 +234,19 @@ on_contents_changed(VteTerminal *term, gpointer data)
     session_set_state(s, SESSION_WORKING);
     if (s->idle_timer_id)
         g_source_remove(s->idle_timer_id);
-    s->idle_timer_id = g_timeout_add_seconds(5, on_silence, s);
+    s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
 }
 
 void
 state_detector_start_cwd(Session *s)
 {
     s->cwd_timer_id = g_timeout_add_seconds(3, poll_cwd, s);
+}
+
+void
+state_detector_start_child(Session *s)
+{
+    s->poll_id = g_timeout_add_seconds(1, poll_proc_state, s);
 }
 
 void

@@ -184,10 +184,37 @@ cmp_entry_desc(const void *a, const void *b)
     return (mb > ma) - (mb < ma);
 }
 
-/* Forward declaration — show_session_list needs make_action_row and make_listbox */
+/* Returns the most-recent session UUID for dir, or NULL. Caller frees. */
+static char *
+latest_claude_session(const char *dir)
+{
+    char **sessions = list_claude_sessions(dir);
+    if (!sessions || !sessions[0]) {
+        g_strfreev(sessions);
+        return NULL;
+    }
+    int n = 0;
+    while (sessions[n])
+        n++;
+    SessionEntry *entries = g_new(SessionEntry, n);
+    for (int i = 0; i < n; i++) {
+        entries[i].id = sessions[i];
+        session_mtime(dir, sessions[i], &entries[i].mtime, &entries[i].mtime_str);
+    }
+    qsort(entries, n, sizeof(SessionEntry), cmp_entry_desc);
+    char *id = g_strdup(entries[0].id);
+    for (int i = 0; i < n; i++)
+        g_free(entries[i].mtime_str);
+    g_free(entries);
+    g_strfreev(sessions);
+    return id;
+}
+
+/* Forward declarations — show_session_list needs these before they're defined */
 static GtkWidget *make_action_row(const char *icon, const char *title, const char *subtitle,
                                   ActionData *ad);
 static GtkWidget *make_listbox(void);
+static void       on_row_activated(GtkListBox *lb, GtkListBoxRow *row, gpointer data);
 
 static void
 show_session_list(const char *dir, SessionPickedFn picked, gpointer picked_data,
@@ -274,6 +301,7 @@ show_session_list(const char *dir, SessionPickedFn picked, gpointer picked_data,
             g_free(entries[i].mtime_str);
         }
         g_free(entries);
+        g_signal_connect(lb, "row-activated", G_CALLBACK(on_row_activated), NULL);
         gtk_box_append(GTK_BOX(inner), lb);
     }
     g_strfreev(sessions);
@@ -388,9 +416,51 @@ static GtkWidget *
 make_listbox(void)
 {
     GtkWidget *lb = gtk_list_box_new();
-    gtk_list_box_set_selection_mode(GTK_LIST_BOX(lb), GTK_SELECTION_NONE);
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(lb), GTK_SELECTION_BROWSE);
     gtk_widget_add_css_class(lb, "boxed-list");
     return lb;
+}
+
+static void
+on_row_activated(GtkListBox *lb, GtkListBoxRow *row, gpointer data)
+{
+    (void)lb;
+    (void)data;
+    GtkWidget *btn = g_object_get_data(G_OBJECT(row), "main-btn");
+    if (btn)
+        gtk_widget_activate(btn);
+}
+
+static gboolean
+activate_first_visible(GtkListBox *lb)
+{
+    if (!lb)
+        return FALSE;
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, i);
+        if (!row)
+            return FALSE;
+        if (gtk_widget_get_child_visible(GTK_WIDGET(row))) {
+            GtkWidget *btn = g_object_get_data(G_OBJECT(row), "main-btn");
+            if (btn) {
+                gtk_widget_activate(btn);
+                return TRUE;
+            }
+        }
+    }
+}
+
+typedef struct {
+    GtkListBox *lb1, *lb2;
+} SearchCtx;
+
+static void
+on_search_activate(GtkSearchEntry *e, gpointer data)
+{
+    (void)e;
+    SearchCtx *ctx = data;
+    if (!activate_first_visible(ctx->lb1))
+        activate_first_visible(ctx->lb2);
 }
 
 /* Build a flat button with icon + title + optional subtitle + chevron. */
@@ -440,11 +510,12 @@ static GtkWidget *
 make_action_row(const char *icon, const char *title, const char *subtitle, ActionData *ad)
 {
     GtkWidget *row = gtk_list_box_row_new();
-    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), TRUE);
 
     GtkWidget *btn = make_content_button(icon, title, subtitle);
     g_signal_connect_data(btn, "clicked", G_CALLBACK(on_action_clicked), ad, (GClosureNotify)g_free,
                           0);
+    g_object_set_data(G_OBJECT(row), "main-btn", btn);
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), btn);
 
     char search[640];
@@ -461,7 +532,7 @@ make_recent_row(const char *path, const ActionData *tmpl)
     const char *name = (base && base[1]) ? base + 1 : path;
 
     GtkWidget *row = gtk_list_box_row_new();
-    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), TRUE);
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
     GtkWidget *main_btn = make_content_button("folder-symbolic", name, path);
@@ -469,10 +540,17 @@ make_recent_row(const char *path, const ActionData *tmpl)
 
     ActionData *ad_main = g_new(ActionData, 1);
     *ad_main            = *tmpl;
-    g_strlcpy(ad_main->cmd, "claude", sizeof(ad_main->cmd));
     g_strlcpy(ad_main->dir, path, sizeof(ad_main->dir));
+    char *latest = latest_claude_session(path);
+    if (latest) {
+        g_snprintf(ad_main->cmd, sizeof(ad_main->cmd), "claude --resume %s", latest);
+        g_free(latest);
+    } else {
+        g_strlcpy(ad_main->cmd, "claude", sizeof(ad_main->cmd));
+    }
     g_signal_connect_data(main_btn, "clicked", G_CALLBACK(on_action_clicked), ad_main,
                           (GClosureNotify)g_free, 0);
+    g_object_set_data(G_OBJECT(row), "main-btn", main_btn);
     gtk_box_append(GTK_BOX(outer), main_btn);
 
     static const struct {
@@ -576,7 +654,12 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
     gtk_list_box_set_filter_func(GTK_LIST_BOX(action_lb), filter_row, search, NULL);
     g_signal_connect_swapped(search, "search-changed", G_CALLBACK(gtk_list_box_invalidate_filter),
                              action_lb);
+    g_signal_connect(action_lb, "row-activated", G_CALLBACK(on_row_activated), NULL);
     gtk_box_append(GTK_BOX(inner), action_lb);
+
+    SearchCtx *sctx = g_new0(SearchCtx, 1);
+    sctx->lb1       = GTK_LIST_BOX(action_lb);
+
     if (recents && recents[0]) {
         gtk_box_append(GTK_BOX(inner), make_section_label("Recent Directories"));
         GtkWidget *recent_lb = make_listbox();
@@ -585,13 +668,23 @@ session_picker_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data
         gtk_list_box_set_filter_func(GTK_LIST_BOX(recent_lb), filter_row, search, NULL);
         g_signal_connect_swapped(search, "search-changed",
                                  G_CALLBACK(gtk_list_box_invalidate_filter), recent_lb);
+        g_signal_connect(recent_lb, "row-activated", G_CALLBACK(on_row_activated), NULL);
         gtk_box_append(GTK_BOX(inner), recent_lb);
+        sctx->lb2 = GTK_LIST_BOX(recent_lb);
     }
     g_strfreev(recents);
+    g_signal_connect_data(search, "activate", G_CALLBACK(on_search_activate), sctx,
+                          (GClosureNotify)g_free, 0);
 
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), inner);
     gtk_box_append(GTK_BOX(page), scroll);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), page);
     adw_dialog_set_child(dialog, toolbar);
     adw_dialog_present(dialog, parent_win);
+}
+
+void
+session_resume_show(GtkWidget *parent_win, SessionPickedFn picked, gpointer data, const char *dir)
+{
+    show_session_list(dir, picked, data, GTK_WINDOW(parent_win));
 }

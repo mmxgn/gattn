@@ -14,7 +14,19 @@ Monitors multiple Claude Code sessions in a sidebar, highlights when one needs y
 
 ### Attention grabbing
 
-Session dots in the sidebar change colour when a session changes state — idle, working, needs input, or done. When gattn is not in focus, a desktop notification fires so you know exactly which session (or shell process) needs you, without watching a terminal.
+Session dots in the sidebar change colour as state changes:
+
+| Colour | State | Meaning |
+|---|---|---|
+| Gray | Idle | Waiting, no action needed |
+| Orange | Working | Actively running / busy |
+| Green | Needs input | Waiting at a prompt for your next command |
+| Red | Blocked | Paused on a question or permission prompt — needs a decision now |
+| Blue | Done | Process has exited |
+
+`Ctrl+Shift+A` jumps to the next session that needs attention, prioritising blocked (red) sessions over ones simply waiting at a prompt (green).
+
+When gattn is not in focus, a desktop notification fires so you know exactly which session needs you without watching a terminal.
 
 ### Keyboard-only navigation
 
@@ -24,17 +36,30 @@ Everything is reachable without a mouse:
 |---|---|
 | `Ctrl+N` | New session |
 | `Ctrl+Shift+W` | Close session |
+| `Ctrl+Shift+R` | Resume latest Claude session in current directory |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous session |
-| `Ctrl+↑` / `Ctrl+↓` | Next / previous session |
-| `Ctrl+←` / `Ctrl+→` | Focus sidebar / terminal |
+| `Alt+↑` / `Alt+↓` or `Alt+K` / `Alt+J` | Previous / next session |
+| `Alt+←` / `Alt+→` or `Alt+H` / `Alt+L` | Focus sidebar / terminal |
 | `Ctrl+PgUp` / `Ctrl+PgDn` | Jump to first / last session |
-| `Ctrl+Shift+A` | Jump to next unattended session |
+| `Ctrl+Shift+A` | Jump to next unattended session (blocked first, then needs-input) |
 | `F2` | Rename session |
 | `Ctrl+F` | Search / filter sessions |
 | `Ctrl+G` | Toggle grid view |
 | `Ctrl+Shift+D` | Show diff |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset terminal font |
 | `F11` | Fullscreen |
+
+**In the diff dialog:**
+
+| Shortcut | Action |
+|---|---|
+| `Alt+H` / `Alt+←` | Focus file list |
+| `Alt+L` / `Alt+→` | Focus source view |
+| `Alt+K` / `Alt+↑` | Previous file |
+| `Alt+J` / `Alt+↓` | Next file |
+| `Alt+E` | Explain diff in Claude |
+| `Alt+U` | Use diff in Claude prompt |
+| `Alt+T` | Open in external diff tool |
 
 ### Grid view
 
@@ -49,6 +74,10 @@ Everything is reachable without a mouse:
 ![diff view](img/diff.png)
 
 <!-- TODO: explain / reuse buttons — open the diff in Claude to get an explanation or paste it into a new session -->
+
+### Sub-agent monitoring
+
+When a Claude session spawns sub-agents (parallel tasks), they appear indented under their parent in the sidebar with a robot icon. Their state dots follow the same colour scheme. Long executable paths are shortened to `/.../name` to keep the sidebar readable. Sub-agents that block on a question turn red, making it easy to spot which one needs a decision — use `Ctrl+Shift+A` to jump straight to it.
 
 ## Install
 

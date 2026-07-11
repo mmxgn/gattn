@@ -21,8 +21,9 @@ extern GResource *gattn_resources_get_resource(void);
 static SessionList sessions;
 
 static const char CSS[] = ".dot-idle        { color: gray;    }"
-                          ".dot-working     { color: #4CAF50; }"
-                          ".dot-needs-input { color: #FFC107; }"
+                          ".dot-working     { color: #FFC107; }"
+                          ".dot-needs-input { color: #4CAF50; }"
+                          ".dot-blocked     { color: #F44336; }"
                           ".dot-done        { color: #2196F3; }"
                           "";
 
@@ -220,20 +221,27 @@ on_next_unattended(GSimpleAction *a, GVariant *p, gpointer d)
     (void)a;
     (void)p;
     (void)d;
-    GtkListBox    *lb    = get_lb();
-    GtkListBoxRow *cur   = gtk_list_box_get_selected_row(lb);
-    int            start = cur ? gtk_list_box_row_get_index(cur) + 1 : 0;
-    int            n     = sessions.count;
+    GtkListBox    *lb       = get_lb();
+    GtkListBoxRow *cur      = gtk_list_box_get_selected_row(lb);
+    int            start    = cur ? gtk_list_box_row_get_index(cur) + 1 : 0;
+    int            n        = sessions.count;
+    GtkListBoxRow *fallback = NULL;
     for (int i = 0; i < n; i++) {
         GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, (start + i) % n);
         if (!row)
             continue;
         Session *s = g_object_get_data(G_OBJECT(row), "gattn-session");
-        if (s && s->state == SESSION_NEEDS_INPUT) {
+        if (!s)
+            continue;
+        if (s->state == SESSION_BLOCKED) {
             gtk_list_box_select_row(lb, row);
             return;
         }
+        if (s->state == SESSION_NEEDS_INPUT && !fallback)
+            fallback = row;
     }
+    if (fallback)
+        gtk_list_box_select_row(lb, fallback);
 }
 
 /* -- sub-agent detection -- */
@@ -257,14 +265,40 @@ on_child_spawned(int child_pid, int parent_id, gpointer data)
     if (!parent)
         return;
 
-    /* read child process name from /proc/<pid>/comm */
-    char comm_path[64], name[64] = "agent";
-    g_snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", child_pid);
-    char *comm = NULL;
-    if (g_file_get_contents(comm_path, &comm, NULL, NULL)) {
-        g_strstrip(comm);
-        g_strlcpy(name, comm, sizeof(name));
-        g_free(comm);
+    /* read full command line from /proc/<pid>/cmdline (args separated by NUL) */
+    char name[64]      = "agent";
+    char full_cmd[128] = "";
+    char cmdline_path[64];
+    g_snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", child_pid);
+    char *raw     = NULL;
+    gsize raw_len = 0;
+    if (g_file_get_contents(cmdline_path, &raw, &raw_len, NULL) && raw_len > 0) {
+        for (gsize i = 0; i + 1 < raw_len; i++)
+            if (raw[i] == '\0')
+                raw[i] = ' ';
+        raw[raw_len - 1] = '\0';
+        g_strstrip(raw);
+        g_strlcpy(full_cmd, raw, sizeof(full_cmd));
+        /* shorten absolute paths: /a/b/exe args → /.../exe args */
+        if (raw[0] == '/') {
+            char *sp   = strchr(raw, ' ');
+            char *base = strrchr(sp ? (char[]){ 0 } : raw, '/');
+            if (!sp)
+                base = strrchr(raw, '/');
+            else {
+                char tmp = *sp;
+                *sp      = '\0';
+                base     = strrchr(raw, '/');
+                *sp      = tmp;
+            }
+            if (base && base != raw)
+                g_snprintf(name, sizeof(name), "/.../%s", base + 1);
+            else
+                g_strlcpy(name, raw, sizeof(name));
+        } else {
+            g_strlcpy(name, raw, sizeof(name));
+        }
+        g_free(raw);
     }
 
     Session *child = session_create(&sessions, name);
@@ -272,11 +306,15 @@ on_child_spawned(int child_pid, int parent_id, gpointer data)
         return;
     child->parent_id = parent_id;
     child->pid       = child_pid;
-    child->terminal  = parent->terminal;
+    if (full_cmd[0])
+        g_strlcpy(child->cmd, full_cmd, sizeof(child->cmd));
+    child->is_robot = g_ascii_strncasecmp(parent->name, "claude", 6) == 0
+                      || g_ascii_strncasecmp(parent->cmd, "claude", 6) == 0;
+    child->terminal = parent->terminal;
     if (parent->cwd[0])
         g_strlcpy(child->cwd, parent->cwd, sizeof(child->cwd));
     sidebar_add_session(app.split, child);
-    state_detector_start_cwd(child);
+    state_detector_start_child(child);
 }
 
 static void
@@ -381,6 +419,18 @@ on_new_session(GtkWidget *split, gpointer data)
     Session    *s   = selected_session();
     const char *cwd = (s && s->cwd[0]) ? s->cwd : NULL;
     session_picker_show(GTK_WIDGET(win), on_session_picked, split, cwd);
+}
+
+static void
+on_resume_claude(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    GtkWindow  *win = gtk_application_get_active_window(GTK_APPLICATION(app.gapp));
+    Session    *s   = selected_session();
+    const char *cwd = (s && s->cwd[0]) ? s->cwd : g_get_home_dir();
+    session_resume_show(GTK_WIDGET(win), on_session_picked, app.split, cwd);
 }
 
 static void
@@ -557,6 +607,21 @@ on_show_diff(GSimpleAction *a, GVariant *p, gpointer d)
 }
 
 static void
+on_open_folder(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    Session *s = selected_session();
+    if (!s)
+        return;
+    const char *cwd = s->cwd[0] ? s->cwd : g_get_home_dir();
+    char       *uri = g_strdup_printf("file://%s", cwd);
+    g_app_info_launch_default_for_uri(uri, NULL, NULL);
+    g_free(uri);
+}
+
+static void
 on_new_session_action(GSimpleAction *a, GVariant *p, gpointer d)
 {
     (void)a;
@@ -656,6 +721,8 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "jump-last", G_CALLBACK(on_jump_last), NULL);
     register_action(map, "raise", G_CALLBACK(on_raise), app_obj);
     register_action(map, "show-diff", G_CALLBACK(on_show_diff), NULL);
+    register_action(map, "open-folder", G_CALLBACK(on_open_folder), NULL);
+    register_action(map, "resume-claude", G_CALLBACK(on_resume_claude), NULL);
     register_action(map, "focus-sidebar", G_CALLBACK(on_focus_sidebar), NULL);
     register_action(map, "focus-content", G_CALLBACK(on_focus_content), NULL);
     register_action(map, "preferences", G_CALLBACK(on_preferences), NULL);
@@ -748,10 +815,12 @@ main(int argc, char *argv[])
         { "app.next-unattended", "<Control><Shift>a" },
         { "app.jump-first", "<Control>Prior" },
         { "app.jump-last", "<Control>Next" },
-        { "app.exit-grid", "Escape" },
+        { "app.exit-grid", "<Control>g" },
         { "app.show-diff", "<Control><Shift>d" },
-        { "app.focus-sidebar", "<Control>Left" },
-        { "app.focus-content", "<Control>Right" },
+        { "app.open-folder", "<Control><Shift>o" },
+        { "app.resume-claude", "<Control><Shift>r" },
+        { "app.focus-sidebar", "<Alt>Left" },
+        { "app.focus-content", "<Alt>Right" },
         { "app.rename-session", "F2" },
         { "app.toggle-search", "<Control>f" },
         { "app.zoom-in", "<Control>plus" },
@@ -766,10 +835,14 @@ main(int argc, char *argv[])
     /* multi-accel overrides (must come after the loop) */
     gtk_application_set_accels_for_action(
         GTK_APPLICATION(a), "app.next-session",
-        (const char *[]){ "<Control>Tab", "<Control>Down", NULL });
+        (const char *[]){ "<Control>Tab", "<Alt>Down", "<Alt>j", NULL });
     gtk_application_set_accels_for_action(
         GTK_APPLICATION(a), "app.prev-session",
-        (const char *[]){ "<Control><Shift>Tab", "<Control>Up", NULL });
+        (const char *[]){ "<Control><Shift>Tab", "<Alt>Up", "<Alt>k", NULL });
+    gtk_application_set_accels_for_action(GTK_APPLICATION(a), "app.focus-sidebar",
+                                          (const char *[]){ "<Alt>Left", "<Alt>h", NULL });
+    gtk_application_set_accels_for_action(GTK_APPLICATION(a), "app.focus-content",
+                                          (const char *[]){ "<Alt>Right", "<Alt>l", NULL });
 
     int status = g_application_run(G_APPLICATION(a), argc, argv);
     g_object_unref(a);

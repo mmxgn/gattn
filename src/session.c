@@ -64,6 +64,7 @@ static const char *const dot_classes[] = {
     [SESSION_IDLE]        = "dot-idle",
     [SESSION_WORKING]     = "dot-working",
     [SESSION_NEEDS_INPUT] = "dot-needs-input",
+    [SESSION_BLOCKED]     = "dot-blocked",
     [SESSION_DONE]        = "dot-done",
 };
 
@@ -77,6 +78,8 @@ state_name(SessionState st)
         return "working";
     case SESSION_NEEDS_INPUT:
         return "needs input";
+    case SESSION_BLOCKED:
+        return "blocked";
     case SESSION_DONE:
         return "done";
     }
@@ -111,9 +114,10 @@ session_set_state(Session *s, SessionState state)
     }
     s->state = state;
     session_refresh_a11y(s);
-    if (state == SESSION_NEEDS_INPUT && s->dot) {
+    if ((state == SESSION_NEEDS_INPUT || state == SESSION_BLOCKED) && s->dot) {
         char msg[128];
-        g_snprintf(msg, sizeof(msg), "%s needs input", s->name);
+        g_snprintf(msg, sizeof(msg), state == SESSION_BLOCKED ? "%s is blocked" : "%s needs input",
+                   s->name);
         gtk_accessible_announce(GTK_ACCESSIBLE(s->dot), msg,
                                 GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
     }

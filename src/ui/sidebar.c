@@ -12,6 +12,11 @@ typedef struct {
     gpointer     data;
 } NewBtnCtx;
 
+typedef struct {
+    const char *key;
+    const char *label;
+} Hint;
+
 void sidebar_rename_session(Session *s, GtkWidget *parent_widget);
 
 /* -- diff dialog -- */
@@ -47,6 +52,32 @@ typedef struct {
     GtkListBox      *files_lb;
     Session         *session; /* non-null when opened from a claude session */
 } DiffCtx;
+
+typedef struct {
+    GtkListBox *lb;
+    int         dir;
+} DiffNavCtx;
+
+static void
+on_diff_focus(GSimpleAction *a, GVariant *p, gpointer data)
+{
+    (void)a;
+    (void)p;
+    gtk_widget_grab_focus(GTK_WIDGET(data));
+}
+
+static void
+on_diff_nav(GSimpleAction *a, GVariant *p, gpointer data)
+{
+    (void)a;
+    (void)p;
+    DiffNavCtx    *nc  = data;
+    GtkListBoxRow *cur = gtk_list_box_get_selected_row(nc->lb);
+    int            idx = cur ? gtk_list_box_row_get_index(cur) : -1;
+    GtkListBoxRow *nxt = gtk_list_box_get_row_at_index(nc->lb, idx + nc->dir);
+    if (nxt)
+        gtk_list_box_select_row(nc->lb, nxt);
+}
 
 static void
 diff_ctx_free(gpointer d)
@@ -226,6 +257,14 @@ on_diff_external(GtkButton *btn, gpointer data)
     g_spawn_async(ctx->cwd, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
 }
 
+static void
+act_diff_external(GSimpleAction *a, GVariant *p, gpointer data)
+{
+    (void)a;
+    (void)p;
+    on_diff_external(NULL, data);
+}
+
 void
 sidebar_show_diff(Session *s, GtkWidget *parent_widget)
 {
@@ -332,20 +371,21 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     if (scheme)
         gtk_source_buffer_set_style_scheme(buf, scheme);
 
-    /* Right-click menu items ("Explain", "Use in prompt") only when the diff was
-       opened from a claude session — appended to the built-in Copy/Paste popup. */
+    /* Action group on toolbar so shortcuts work regardless of focused widget. */
+    GSimpleActionGroup *ag  = g_simple_action_group_new();
+    GSimpleAction      *ext = g_simple_action_new("external", NULL);
+    g_signal_connect(ext, "activate", G_CALLBACK(act_diff_external), ctx);
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(ext));
+    g_object_unref(ext);
     if (ctx->session) {
-        GSimpleActionGroup *ag  = g_simple_action_group_new();
-        GSimpleAction      *ex  = g_simple_action_new("explain", NULL);
-        GSimpleAction      *use = g_simple_action_new("use-in-prompt", NULL);
+        GSimpleAction *ex  = g_simple_action_new("explain", NULL);
+        GSimpleAction *use = g_simple_action_new("use-in-prompt", NULL);
         g_signal_connect(ex, "activate", G_CALLBACK(act_diff_explain), ctx);
         g_signal_connect(use, "activate", G_CALLBACK(act_diff_use_in_prompt), ctx);
         g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(ex));
         g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(use));
         g_object_unref(ex);
         g_object_unref(use);
-        gtk_widget_insert_action_group(view, "diff", G_ACTION_GROUP(ag));
-        g_object_unref(ag);
 
         GMenu *menu = g_menu_new();
         g_menu_append(menu, "Explain", "diff.explain");
@@ -353,6 +393,61 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
         gtk_text_view_set_extra_menu(GTK_TEXT_VIEW(view), G_MENU_MODEL(menu));
         g_object_unref(menu);
     }
+    /* nav-up / nav-down for Ctrl+Up/Down file navigation. */
+    GSimpleAction *nav_up   = g_simple_action_new("nav-up", NULL);
+    GSimpleAction *nav_down = g_simple_action_new("nav-down", NULL);
+    DiffNavCtx    *nup      = g_new(DiffNavCtx, 1);
+    DiffNavCtx    *ndown    = g_new(DiffNavCtx, 1);
+    nup->lb = ndown->lb = GTK_LIST_BOX(files_lb);
+    nup->dir            = -1;
+    ndown->dir          = 1;
+    g_signal_connect_data(nav_up, "activate", G_CALLBACK(on_diff_nav), nup, (GClosureNotify)g_free,
+                          0);
+    g_signal_connect_data(nav_down, "activate", G_CALLBACK(on_diff_nav), ndown,
+                          (GClosureNotify)g_free, 0);
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(nav_up));
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(nav_down));
+    g_object_unref(nav_up);
+    g_object_unref(nav_down);
+
+    GSimpleAction *foc_files = g_simple_action_new("focus-files", NULL);
+    GSimpleAction *foc_src   = g_simple_action_new("focus-source", NULL);
+    g_signal_connect(foc_files, "activate", G_CALLBACK(on_diff_focus), files_lb);
+    g_signal_connect(foc_src, "activate", G_CALLBACK(on_diff_focus), view);
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(foc_files));
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(foc_src));
+    g_object_unref(foc_files);
+    g_object_unref(foc_src);
+
+    gtk_widget_insert_action_group(GTK_WIDGET(dialog), "diff", G_ACTION_GROUP(ag));
+    g_object_unref(ag);
+
+    /* Keyboard shortcuts at managed scope — fire from any focused widget in the dialog. */
+    GtkShortcutController *sc = GTK_SHORTCUT_CONTROLLER(gtk_shortcut_controller_new());
+    gtk_shortcut_controller_set_scope(sc, GTK_SHORTCUT_SCOPE_MANAGED);
+
+    static const struct {
+        guint           key;
+        GdkModifierType mod;
+        const char     *action;
+    } cuts[] = {
+        { GDK_KEY_Up, GDK_ALT_MASK, "diff.nav-up" },
+        { GDK_KEY_Down, GDK_ALT_MASK, "diff.nav-down" },
+        { GDK_KEY_k, GDK_ALT_MASK, "diff.nav-up" },
+        { GDK_KEY_j, GDK_ALT_MASK, "diff.nav-down" },
+        { GDK_KEY_Left, GDK_ALT_MASK, "diff.focus-files" },
+        { GDK_KEY_h, GDK_ALT_MASK, "diff.focus-files" },
+        { GDK_KEY_Right, GDK_ALT_MASK, "diff.focus-source" },
+        { GDK_KEY_l, GDK_ALT_MASK, "diff.focus-source" },
+        { GDK_KEY_t, GDK_ALT_MASK, "diff.external" },
+        { GDK_KEY_e, GDK_ALT_MASK, "diff.explain" },
+        { GDK_KEY_u, GDK_ALT_MASK, "diff.use-in-prompt" },
+    };
+    for (size_t i = 0; i < sizeof(cuts) / sizeof(*cuts); i++)
+        gtk_shortcut_controller_add_shortcut(
+            sc, gtk_shortcut_new(gtk_keyval_trigger_new(cuts[i].key, cuts[i].mod),
+                                 gtk_named_action_new(cuts[i].action)));
+    gtk_widget_add_controller(GTK_WIDGET(dialog), GTK_EVENT_CONTROLLER(sc));
 
     GtkWidget *right_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(right_scroll), view);
@@ -362,7 +457,7 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_set_start_child(GTK_PANED(paned), left_scroll);
     gtk_paned_set_end_child(GTK_PANED(paned), right_scroll);
-    gtk_paned_set_position(GTK_PANED(paned), 280);
+    gtk_paned_set_position(GTK_PANED(paned), 260);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
 
@@ -374,11 +469,38 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     else
         gtk_text_buffer_set_text(GTK_TEXT_BUFFER(buf), "No changes (or not a git repository).", -1);
 
+    /* Status bar with shortcuts. */
+    static const Hint hints[] = {
+        { "M-h/l", "Files/Code" }, { "M-↑/↓ k/j", "File" }, { "M-T", "External" },
+        { "M-E", "Explain" },      { "M-U", "Use" },
+    };
+    GtkWidget *statusbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+    gtk_widget_set_margin_start(statusbar, 10);
+    gtk_widget_set_margin_end(statusbar, 10);
+    gtk_widget_set_margin_top(statusbar, 4);
+    gtk_widget_set_margin_bottom(statusbar, 4);
+    for (int i = 0; i < (int)(sizeof(hints) / sizeof(*hints)); i++) {
+        GtkWidget *pair = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        GtkWidget *k    = gtk_label_new(hints[i].key);
+        gtk_widget_add_css_class(k, "caption");
+        gtk_widget_add_css_class(k, "monospace");
+        GtkWidget *l = gtk_label_new(hints[i].label);
+        gtk_widget_add_css_class(l, "caption");
+        gtk_widget_add_css_class(l, "dim-label");
+        gtk_box_append(GTK_BOX(pair), k);
+        gtk_box_append(GTK_BOX(pair), l);
+        gtk_box_append(GTK_BOX(statusbar), pair);
+    }
+    adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(toolbar), statusbar);
+
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), paned);
     adw_dialog_set_child(dialog, toolbar);
 
     GtkRoot *root = gtk_widget_get_root(parent_widget);
     adw_dialog_present(dialog, root ? GTK_WIDGET(root) : parent_widget);
+
+    if (first_row)
+        gtk_widget_grab_focus(files_lb);
 }
 
 /* -- rename -- */
@@ -605,7 +727,7 @@ static GtkWidget *
 make_row(Session *s)
 {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_widget_set_margin_start(box, s->parent_id ? 24 : 8);
+    gtk_widget_set_margin_start(box, s->is_robot ? 24 : 8);
     gtk_widget_set_margin_end(box, 4);
     gtk_widget_set_margin_top(box, 4);
     gtk_widget_set_margin_bottom(box, 4);
@@ -614,56 +736,70 @@ make_row(Session *s)
        widget's `color` CSS (set via the dot-* classes). */
     gboolean is_agent = g_ascii_strncasecmp(s->name, "claude", 6) == 0
                         || g_ascii_strncasecmp(s->cmd, "claude", 6) == 0;
-    GtkWidget *dot
-        = gtk_image_new_from_icon_name(is_agent ? "gattn-agent-symbolic" : "gattn-shell-symbolic");
+    const char *icon = s->is_robot ? "gattn-robot-symbolic"
+                       : is_agent  ? "gattn-agent-symbolic"
+                                   : "gattn-shell-symbolic";
+    GtkWidget  *dot  = gtk_image_new_from_icon_name(icon);
+    if (s->is_robot)
+        gtk_image_set_pixel_size(GTK_IMAGE(dot), 12);
     gtk_widget_add_css_class(dot, "dot-idle");
     s->dot = dot;
 
-    char display_name[72];
-    if (s->parent_id)
-        g_snprintf(display_name, sizeof(display_name), "·  %s", s->name);
-    else
-        g_strlcpy(display_name, s->name, sizeof(display_name));
-    GtkWidget *name_lbl = gtk_label_new(display_name);
+    GtkWidget *name_lbl = gtk_label_new(s->name);
     gtk_label_set_xalign(GTK_LABEL(name_lbl), 0.0f);
-    s->name_label = name_lbl;
-
-    char cwd_display[256] = "~";
-    if (s->cwd[0]) {
-        const char *base = strrchr(s->cwd, '/');
-        g_strlcpy(cwd_display, (base && base[1]) ? base + 1 : s->cwd, sizeof(cwd_display));
+    gtk_label_set_ellipsize(GTK_LABEL(name_lbl), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(name_lbl, TRUE);
+    if (s->is_robot) {
+        gtk_widget_add_css_class(name_lbl, "caption");
+        gtk_widget_add_css_class(name_lbl, "dim-label");
     }
-    GtkWidget *cwd_lbl = gtk_label_new(cwd_display);
-    gtk_label_set_xalign(GTK_LABEL(cwd_lbl), 0.0f);
-    gtk_label_set_ellipsize(GTK_LABEL(cwd_lbl), PANGO_ELLIPSIZE_START);
-    gtk_widget_add_css_class(cwd_lbl, "caption");
-    gtk_widget_add_css_class(cwd_lbl, "dim-label");
-    s->cwd_label = cwd_lbl;
+    s->name_label = name_lbl;
 
     GtkWidget *labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_hexpand(labels, TRUE);
     gtk_box_append(GTK_BOX(labels), name_lbl);
-    gtk_box_append(GTK_BOX(labels), cwd_lbl);
+
+    GtkWidget *cwd_lbl = NULL;
+    if (!s->parent_id) {
+        char cwd_display[256] = "~";
+        if (s->cwd[0]) {
+            const char *base = strrchr(s->cwd, '/');
+            g_strlcpy(cwd_display, (base && base[1]) ? base + 1 : s->cwd, sizeof(cwd_display));
+        }
+        cwd_lbl = gtk_label_new(cwd_display);
+        gtk_label_set_xalign(GTK_LABEL(cwd_lbl), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(cwd_lbl), PANGO_ELLIPSIZE_START);
+        gtk_widget_add_css_class(cwd_lbl, "caption");
+        gtk_widget_add_css_class(cwd_lbl, "dim-label");
+        s->cwd_label = cwd_lbl;
+        gtk_box_append(GTK_BOX(labels), cwd_lbl);
+    }
 
     gtk_box_append(GTK_BOX(box), dot);
     gtk_box_append(GTK_BOX(box), labels);
 
-    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_append(GTK_BOX(actions), make_icon_btn("folder-open-symbolic", "Open folder",
-                                                   G_CALLBACK(on_folder_btn_clicked), s));
-    gtk_box_append(GTK_BOX(actions), make_icon_btn("utilities-terminal-symbolic", "Open shell here",
-                                                   G_CALLBACK(on_terminal_btn_clicked), s));
-    gtk_box_append(GTK_BOX(actions), make_icon_btn("document-edit-symbolic", "Show diff",
-                                                   G_CALLBACK(on_diff_btn_clicked), s));
-    gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Close session",
-                                                   G_CALLBACK(on_close_btn_clicked), s));
-    gtk_box_append(GTK_BOX(box), actions);
+    GtkWidget *actions = NULL;
+    if (!s->parent_id) {
+        actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("folder-open-symbolic", "Open folder",
+                                                       G_CALLBACK(on_folder_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions),
+                       make_icon_btn("utilities-terminal-symbolic", "Open shell here",
+                                     G_CALLBACK(on_terminal_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("document-edit-symbolic", "Show diff",
+                                                       G_CALLBACK(on_diff_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Close session",
+                                                       G_CALLBACK(on_close_btn_clicked), s));
+        gtk_box_append(GTK_BOX(box), actions);
+    }
 
     GtkWidget *row = gtk_list_box_row_new();
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    if (s->is_robot && s->cmd[0])
+        gtk_widget_set_tooltip_text(row, s->cmd);
     g_object_set_data(G_OBJECT(row), "gattn-session", s);
     g_object_set_data(G_OBJECT(row), "gattn-row-actions", actions);
-    g_object_set_data(G_OBJECT(row), "gattn-row-cwd", cwd_lbl);
+    g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
     session_refresh_a11y(s);
 
     GtkGesture *rc = gtk_gesture_click_new();
@@ -793,39 +929,51 @@ sidebar_add_session(GtkWidget *split, Session *s)
 /* -- shortcut bar -- */
 
 static GtkWidget *
-make_shortcut_bar(void)
+make_hint_grid(const Hint *hints, int n)
 {
-    static const struct {
-        const char *key;
-        const char *action;
-    } hints[] = {
-        { "^N", "New" },    { "^⇧W", "Close" }, { "^↓/⇥", "Next" },      { "^↑/⇧⇥", "Prev" },
-        { "^PgUp", "Top" }, { "^PgDn", "Bot" }, { "^⇧A", "Unattended" }, { "^G", "Grid" },
-        { "^⇧D", "Diff" },  { "^F", "Search" },
-    };
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_row_spacing(GTK_GRID(grid), 1);
-    gtk_widget_set_margin_start(grid, 10);
-    gtk_widget_set_margin_end(grid, 10);
-    gtk_widget_set_margin_top(grid, 6);
-    gtk_widget_set_margin_bottom(grid, 6);
-
-    for (int i = 0; i < (int)(sizeof(hints) / sizeof(*hints)); i++) {
-        GtkWidget *key = gtk_label_new(hints[i].key);
-        gtk_label_set_xalign(GTK_LABEL(key), 1.0f);
-        gtk_widget_add_css_class(key, "caption");
-        gtk_widget_add_css_class(key, "monospace");
-
-        GtkWidget *lbl = gtk_label_new(hints[i].action);
-        gtk_label_set_xalign(GTK_LABEL(lbl), 0.0f);
-        gtk_widget_add_css_class(lbl, "caption");
-        gtk_widget_add_css_class(lbl, "dim-label");
-
-        gtk_grid_attach(GTK_GRID(grid), key, 0, i, 1, 1);
-        gtk_grid_attach(GTK_GRID(grid), lbl, 1, i, 1, 1);
+    for (int i = 0; i < n; i++) {
+        GtkWidget *k = gtk_label_new(hints[i].key);
+        gtk_label_set_xalign(GTK_LABEL(k), 1.0f);
+        gtk_widget_add_css_class(k, "caption");
+        gtk_widget_add_css_class(k, "monospace");
+        GtkWidget *l = gtk_label_new(hints[i].label);
+        gtk_label_set_xalign(GTK_LABEL(l), 0.0f);
+        gtk_widget_add_css_class(l, "caption");
+        gtk_widget_add_css_class(l, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), k, 0, i, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), l, 1, i, 1, 1);
     }
     return grid;
+}
+
+static GtkWidget *
+make_shortcut_bar(void)
+{
+    static const Hint nav[] = {
+        { "^N", "New" },          { "^⇧W", "Close" },      { "M-j/k", "Next/Prev" },
+        { "M-h/l", "Side/Term" }, { "^⇧A", "Unattended" }, { "^G", "Grid" },
+        { "^⇧D", "Diff" },        { "^F", "Search" },
+    };
+    static const Hint open[] = {
+        { "^⇧R", "Resume Claude" }, { "^⇧O", "Open folder" }, { "F2", "Rename" },
+        { "^+/-", "Zoom" },         { "F11", "Fullscreen" },
+    };
+
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 6);
+    gtk_widget_set_margin_bottom(box, 6);
+    gtk_box_append(GTK_BOX(box), make_hint_grid(nav, (int)(sizeof(nav) / sizeof(*nav))));
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+    gtk_widget_set_margin_start(sep, 4);
+    gtk_widget_set_margin_end(sep, 4);
+    gtk_box_append(GTK_BOX(box), sep);
+    gtk_box_append(GTK_BOX(box), make_hint_grid(open, (int)(sizeof(open) / sizeof(*open))));
+    return box;
 }
 
 void
