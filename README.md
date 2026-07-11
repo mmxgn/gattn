@@ -8,7 +8,7 @@ Inspired by [attn](https://github.com/victorarias/attn).
 
 Monitors multiple Claude Code sessions in a sidebar, highlights when one needs your attention, and lets you switch between them without leaving the keyboard.
 
-![screenshot](img/screenshot.png)
+![screenshot](img/main.png)
 
 ## Features
 
