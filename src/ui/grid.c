@@ -17,11 +17,6 @@ typedef struct {
     int       cols;
 } GridNav;
 
-typedef struct {
-    GridNav *gn;
-    int      dx, dy;
-} NavCtx;
-
 static void
 grid_nav_free(GridNav *gn)
 {
@@ -29,13 +24,41 @@ grid_nav_free(GridNav *gn)
     g_free(gn);
 }
 
-static void
-on_grid_nav(GSimpleAction *a, GVariant *p, gpointer data)
+static gboolean
+on_grid_key(GtkEventControllerKey *ctrl, guint keyval, guint keycode, GdkModifierType state,
+            gpointer data)
 {
-    (void)a;
-    (void)p;
-    NavCtx  *nc = data;
-    GridNav *gn = nc->gn;
+    (void)keycode;
+    (void)data;
+    if (!(state & GDK_ALT_MASK))
+        return FALSE;
+
+    int dx = 0, dy = 0;
+    switch (keyval) {
+    case GDK_KEY_Left:
+    case GDK_KEY_h:
+        dx = -1;
+        break;
+    case GDK_KEY_Right:
+    case GDK_KEY_l:
+        dx = 1;
+        break;
+    case GDK_KEY_Up:
+    case GDK_KEY_k:
+        dy = -1;
+        break;
+    case GDK_KEY_Down:
+    case GDK_KEY_j:
+        dy = 1;
+        break;
+    default:
+        return FALSE;
+    }
+
+    GtkWidget *wrapper = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(ctrl));
+    GridNav   *gn      = g_object_get_data(G_OBJECT(wrapper), "gattn-grid-nav");
+    if (!gn || gn->count == 0)
+        return TRUE;
 
     int cur = -1;
     for (int i = 0; i < gn->count; i++) {
@@ -49,21 +72,18 @@ on_grid_nav(GSimpleAction *a, GVariant *p, gpointer data)
 
     int row     = cur / gn->cols;
     int col     = cur % gn->cols;
-    int new_row = row + nc->dy;
-    int new_col = col + nc->dx;
+    int new_row = row + dy;
+    int new_col = col + dx;
     int max_row = (gn->count - 1) / gn->cols;
-    int max_col = MIN(gn->cols - 1,
-                      gn->count - 1 - max_row * gn->cols + (new_row < max_row ? gn->cols - 1 : 0));
 
-    (void)max_col;
-    if (new_col < 0 || new_col >= gn->cols)
-        return;
-    if (new_row < 0 || new_row > max_row)
-        return;
+    /* consume the keystroke even at edges — don't let VTE see Alt+arrow */
+    if (new_col < 0 || new_col >= gn->cols || new_row < 0 || new_row > max_row)
+        return TRUE;
 
     int next = new_row * gn->cols + new_col;
-    if (next >= 0 && next < gn->count)
+    if (next < gn->count)
         gtk_widget_grab_focus(gn->tiles[next]->terminal);
+    return TRUE;
 }
 
 static GtkWidget *
@@ -153,54 +173,13 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(wrapper), grid);
     adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(wrapper), make_grid_statusbar());
 
-    /* navigation shortcuts */
-    GSimpleActionGroup *ag = g_simple_action_group_new();
-
-    static const struct {
-        const char *name;
-        int         dx, dy;
-    } dirs[] = {
-        { "nav-left", -1, 0 },
-        { "nav-right", 1, 0 },
-        { "nav-up", 0, -1 },
-        { "nav-down", 0, 1 },
-    };
-    for (gsize i = 0; i < sizeof(dirs) / sizeof(*dirs); i++) {
-        NavCtx *nc         = g_new(NavCtx, 1);
-        nc->gn             = gn;
-        nc->dx             = dirs[i].dx;
-        nc->dy             = dirs[i].dy;
-        GSimpleAction *act = g_simple_action_new(dirs[i].name, NULL);
-        g_signal_connect_data(act, "activate", G_CALLBACK(on_grid_nav), nc, (GClosureNotify)g_free,
-                              0);
-        g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(act));
-        g_object_unref(act);
-    }
-    gtk_widget_insert_action_group(wrapper, "gn", G_ACTION_GROUP(ag));
-    g_object_unref(ag);
-
-    GtkShortcutController *sc = GTK_SHORTCUT_CONTROLLER(gtk_shortcut_controller_new());
-    gtk_shortcut_controller_set_scope(sc, GTK_SHORTCUT_SCOPE_MANAGED);
-
-    static const struct {
-        guint           key;
-        GdkModifierType mod;
-        const char     *action;
-    } cuts[] = {
-        { GDK_KEY_Left, GDK_ALT_MASK, "gn.nav-left" },
-        { GDK_KEY_h, GDK_ALT_MASK, "gn.nav-left" },
-        { GDK_KEY_Right, GDK_ALT_MASK, "gn.nav-right" },
-        { GDK_KEY_l, GDK_ALT_MASK, "gn.nav-right" },
-        { GDK_KEY_Up, GDK_ALT_MASK, "gn.nav-up" },
-        { GDK_KEY_k, GDK_ALT_MASK, "gn.nav-up" },
-        { GDK_KEY_Down, GDK_ALT_MASK, "gn.nav-down" },
-        { GDK_KEY_j, GDK_ALT_MASK, "gn.nav-down" },
-    };
-    for (gsize i = 0; i < sizeof(cuts) / sizeof(*cuts); i++)
-        gtk_shortcut_controller_add_shortcut(
-            sc, gtk_shortcut_new(gtk_keyval_trigger_new(cuts[i].key, cuts[i].mod),
-                                 gtk_named_action_new(cuts[i].action)));
-    gtk_widget_add_controller(wrapper, GTK_EVENT_CONTROLLER(sc));
+    /* CAPTURE phase on wrapper: fires before VTE sees the keystroke.
+       App-level accels for the same keys are disabled in toggle_grid() so they
+       don't consume the event at window-capture level before we get it. */
+    GtkEventControllerKey *kc = GTK_EVENT_CONTROLLER_KEY(gtk_event_controller_key_new());
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(kc), GTK_PHASE_CAPTURE);
+    g_signal_connect(kc, "key-pressed", G_CALLBACK(on_grid_key), NULL);
+    gtk_widget_add_controller(wrapper, GTK_EVENT_CONTROLLER(kc));
 
     /* store nav so it lives as long as the wrapper */
     g_object_set_data_full(G_OBJECT(wrapper), "gattn-grid-nav", gn, (GDestroyNotify)grid_nav_free);

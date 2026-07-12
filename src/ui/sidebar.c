@@ -848,7 +848,9 @@ on_row_selected(GtkListBox *lb, GtkListBoxRow *row, gpointer data)
     int  display_id = (s->parent_id != 0) ? s->parent_id : s->id;
     char name[32];
     g_snprintf(name, sizeof(name), "session-%d", display_id);
-    gtk_stack_set_visible_child_name(GTK_STACK(data), name);
+    /* In grid mode the terminal lives in a tile frame, not the stack — skip silently */
+    if (gtk_stack_get_child_by_name(GTK_STACK(data), name))
+        gtk_stack_set_visible_child_name(GTK_STACK(data), name);
 
     /* In collapsed (narrow) mode, sidebar is root — pushing content shows the terminal.
        In wide mode this is a no-op. */
