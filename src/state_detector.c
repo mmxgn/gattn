@@ -79,6 +79,54 @@ on_contents_changed(VteTerminal *term, gpointer data)
     s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
 }
 
+/* Read branch name from .git/HEAD by walking up from dir. Returns g_malloc'd
+   string (caller frees) or NULL if not in a git repo or HEAD is detached. */
+static char *
+git_branch_for(const char *cwd)
+{
+    char dir[256];
+    g_strlcpy(dir, cwd, sizeof(dir));
+    for (;;) {
+        char  head[272];
+        char *content = NULL;
+        g_snprintf(head, sizeof(head), "%s/.git/HEAD", dir);
+        if (g_file_get_contents(head, &content, NULL, NULL)) {
+            char       *branch = NULL;
+            const char *prefix = "ref: refs/heads/";
+            if (g_str_has_prefix(content, prefix)) {
+                char *nl = strchr(content + strlen(prefix), '\n');
+                if (nl)
+                    *nl = '\0';
+                branch = g_strdup(content + strlen(prefix));
+            }
+            g_free(content);
+            return branch;
+        }
+        char *slash = strrchr(dir, '/');
+        if (!slash || slash == dir)
+            break;
+        *slash = '\0';
+    }
+    return NULL;
+}
+
+static void
+maybe_rename_to_branch(Session *s)
+{
+    if (s->user_renamed)
+        return;
+    char *branch = git_branch_for(s->cwd);
+    if (!branch)
+        return;
+    if (strcmp(branch, s->name) != 0) {
+        g_strlcpy(s->name, branch, sizeof(s->name));
+        if (s->name_label)
+            gtk_label_set_text(GTK_LABEL(s->name_label), s->name);
+        session_refresh_a11y(s);
+    }
+    g_free(branch);
+}
+
 static gboolean
 poll_cwd(gpointer data)
 {
@@ -101,6 +149,8 @@ poll_cwd(gpointer data)
         session_refresh_a11y(s);
     }
     g_free(link);
+
+    maybe_rename_to_branch(s);
     return G_SOURCE_CONTINUE;
 }
 

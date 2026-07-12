@@ -14,26 +14,27 @@ typedef void (*SessionStateChangedFn)(Session *s, gpointer data);
 typedef void (*SessionChildSpawnedFn)(int child_pid, int parent_id, gpointer data);
 
 struct Session {
-    int                   id;
-    int                   parent_id; /* 0 = top-level */
-    gboolean              is_robot;  /* child of an agent session */
-    char                  name[64];
-    char                  cmd[128];
-    char                  cwd[256];
-    SessionState          state;
-    GtkWidget            *terminal;   /* VteTerminal */
-    GtkWidget            *dot;        /* sidebar state dot */
-    GtkWidget            *grid_frame; /* grid-view tile frame, NULL when not in grid */
-    GtkWidget            *name_label; /* sidebar name label */
-    GtkWidget            *cwd_label;  /* sidebar cwd label */
-    int                   pid;
-    guint                 poll_id;
-    guint                 idle_timer_id;
-    guint                 cwd_timer_id;
-    guint                 child_poll_id;
-    gint64                last_user_input_us; /* suppress contents-changed while user types */
-    int                   seen_child_pids[32];
-    int                   seen_child_count;
+    int          id;
+    int          parent_id; /* 0 = top-level */
+    gboolean     is_robot;  /* child of an agent session */
+    char         name[64];
+    char         cmd[128];
+    char         cwd[256];
+    SessionState state;
+    GtkWidget   *terminal;   /* VteTerminal */
+    GtkWidget   *dot;        /* sidebar state dot */
+    GtkWidget   *grid_frame; /* grid-view tile frame, NULL when not in grid */
+    GtkWidget   *name_label; /* sidebar name label */
+    GtkWidget   *cwd_label;  /* sidebar cwd label */
+    int          pid;
+    guint        poll_id;
+    guint        idle_timer_id;
+    guint        cwd_timer_id;
+    guint        child_poll_id;
+    gint64       last_user_input_us; /* suppress contents-changed while user types */
+    gboolean     user_renamed;       /* TRUE once user explicitly renames; disables auto-rename */
+    int          seen_child_pids[32];
+    int          seen_child_count;
     SessionStateChangedFn on_state_changed;
     gpointer              on_state_changed_data;
     SessionChildSpawnedFn on_child_spawned;
