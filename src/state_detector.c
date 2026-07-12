@@ -134,9 +134,23 @@ poll_cwd(gpointer data)
     if (s->pid == 0)
         return G_SOURCE_CONTINUE;
 
-    char path[64];
-    g_snprintf(path, sizeof(path), "/proc/%d/cwd", s->pid);
-    char *link = g_file_read_link(path, NULL);
+    char  path[64];
+    char *link = NULL;
+
+    /* For top-level sessions, prefer the cwd of the most recently spawned
+       child process (e.g. a bash tool). Claude Code (Node.js) may not call
+       chdir() itself, so /proc/<claude_pid>/cwd stays fixed at startup even
+       when the AI is working inside a different directory. */
+    if (s->parent_id == 0) {
+        for (int i = s->seen_child_count - 1; i >= 0 && !link; i--) {
+            g_snprintf(path, sizeof(path), "/proc/%d/cwd", s->seen_child_pids[i]);
+            link = g_file_read_link(path, NULL);
+        }
+    }
+    if (!link) {
+        g_snprintf(path, sizeof(path), "/proc/%d/cwd", s->pid);
+        link = g_file_read_link(path, NULL);
+    }
     if (!link)
         return G_SOURCE_CONTINUE;
 
