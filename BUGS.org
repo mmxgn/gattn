@@ -38,3 +38,5 @@ Added a "New Claude session" (starred) icon button to each recent-dir row in mak
 
 * DONE When claude changes cwd (e.g. working on a worktree), it should be reflected on the sidebar
 state_detector_start_child now starts poll_cwd (3s interval) alongside poll_proc_state
+
+* TODO M-h/l doesn't seem to work on Grid-mode

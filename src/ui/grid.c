@@ -134,9 +134,7 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
             continue;
         frames[tile]    = gtk_frame_new(s->name);
         gn->tiles[tile] = s;
-        char tile_class[12];
-        g_snprintf(tile_class, sizeof(tile_class), "tile-%d", tile % 6);
-        gtk_widget_add_css_class(frames[tile], tile_class);
+        session_set_grid_frame(s, frames[tile]);
         gtk_widget_set_hexpand(frames[tile], TRUE);
         gtk_widget_set_vexpand(frames[tile], TRUE);
         gtk_grid_attach(GTK_GRID(grid), frames[tile], tile % 2, tile / 2, 1, 1);
@@ -241,6 +239,7 @@ grid_exit(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions)
             continue; /* children share parent terminal, not in grid */
         GtkWidget *frame = gtk_widget_get_parent(s->terminal);
 
+        session_set_grid_frame(s, NULL);
         g_object_ref(s->terminal);
         gtk_frame_set_child(GTK_FRAME(frame), NULL);
 

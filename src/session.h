@@ -23,6 +23,7 @@ struct Session {
     SessionState          state;
     GtkWidget            *terminal;   /* VteTerminal */
     GtkWidget            *dot;        /* sidebar state dot */
+    GtkWidget            *grid_frame; /* grid-view tile frame, NULL when not in grid */
     GtkWidget            *name_label; /* sidebar name label */
     GtkWidget            *cwd_label;  /* sidebar cwd label */
     int                   pid;
@@ -49,6 +50,7 @@ typedef struct {
 } SessionList;
 
 void     session_list_init(SessionList *list);
+void     session_set_grid_frame(Session *s, GtkWidget *frame); /* NULL to clear */
 Session *session_create(SessionList *list, const char *name);
 void     session_destroy(SessionList *list, int id);
 void     session_set_state(Session *s, SessionState state);

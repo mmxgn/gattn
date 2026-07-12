@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
-#include <vte/vte.h>
 
 /* Hook path: any process can write "working\n", "needs_input\n", etc. here */
 static void
@@ -42,36 +41,6 @@ poll_hook_file(gpointer data)
         session_set_state(s, SESSION_DONE);
 
     return G_SOURCE_CONTINUE;
-}
-
-static gboolean
-on_silence(gpointer data)
-{
-    Session *s       = data;
-    s->idle_timer_id = 0;
-    if (s->state != SESSION_WORKING)
-        return G_SOURCE_REMOVE;
-
-    SessionState next = SESSION_NEEDS_INPUT;
-
-    /* if the last visible terminal line contains a '?' it's a question prompt */
-    if (s->terminal) {
-        VteTerminal *term = VTE_TERMINAL(s->terminal);
-        long         col, row;
-        vte_terminal_get_cursor_position(term, &col, &row);
-        /* read from a few lines above cursor to capture the prompt line */
-        long  start = row > 5 ? row - 5 : 0;
-        char *text
-            = vte_terminal_get_text_range_format(term, VTE_FORMAT_TEXT, start, 0, row, col, NULL);
-        if (text) {
-            if (strstr(text, "?"))
-                next = SESSION_BLOCKED;
-            g_free(text);
-        }
-    }
-
-    session_set_state(s, next);
-    return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -129,7 +98,7 @@ poll_proc_state(gpointer data)
         char spath[64];
         g_snprintf(spath, sizeof(spath), "/proc/%d/syscall", s->pid);
         char        *sc   = NULL;
-        SessionState next = SESSION_IDLE;
+        SessionState next = SESSION_NEEDS_INPUT;
         if (g_file_get_contents(spath, &sc, NULL, NULL) && sc) {
             long nr = -1, fd = -1;
             if (sscanf(sc, "%ld %lx", &nr, &fd) == 2 && nr == __NR_read && fd == 0)
@@ -215,28 +184,6 @@ poll_children(gpointer data)
     return G_SOURCE_CONTINUE;
 }
 
-static void
-on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
-{
-    (void)term;
-    (void)text;
-    (void)len;
-    Session *s = data;
-    if (s->state == SESSION_NEEDS_INPUT)
-        session_set_state(s, SESSION_WORKING);
-}
-
-static void
-on_contents_changed(VteTerminal *term, gpointer data)
-{
-    (void)term;
-    Session *s = data;
-    session_set_state(s, SESSION_WORKING);
-    if (s->idle_timer_id)
-        g_source_remove(s->idle_timer_id);
-    s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
-}
-
 void
 state_detector_start_cwd(Session *s)
 {
@@ -257,9 +204,8 @@ state_detector_start(Session *s)
     g_snprintf(dir, sizeof(dir), "%s/gattn", g_get_user_runtime_dir());
     g_mkdir_with_parents(dir, 0700);
 
-    g_signal_connect(s->terminal, "commit", G_CALLBACK(on_user_input), s);
-    g_signal_connect(s->terminal, "contents-changed", G_CALLBACK(on_contents_changed), s);
     s->poll_id       = g_timeout_add_seconds(1, poll_hook_file, s);
+    s->idle_timer_id = g_timeout_add_seconds(1, poll_proc_state, s);
     s->cwd_timer_id  = g_timeout_add_seconds(3, poll_cwd, s);
     s->child_poll_id = g_timeout_add_seconds(2, poll_children, s);
 }
