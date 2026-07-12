@@ -74,6 +74,14 @@ on_grid_back(GtkButton *btn, gpointer d)
     toggle_grid();
 }
 
+/* Actions whose Alt+arrow accels clash with grid tile navigation */
+static const char *const grid_blocked_actions[] = {
+    "focus-sidebar",
+    "focus-content",
+    "next-session",
+    "prev-session",
+};
+
 static void
 toggle_grid(void)
 {
@@ -83,6 +91,11 @@ toggle_grid(void)
     g_simple_action_set_enabled(exit_grid_act, in_grid);
     if (grid_btn)
         gtk_toggle_button_set_active(grid_btn, in_grid);
+    for (gsize i = 0; i < sizeof(grid_blocked_actions) / sizeof(*grid_blocked_actions); i++) {
+        GAction *act = g_action_map_lookup_action(G_ACTION_MAP(app.gapp), grid_blocked_actions[i]);
+        if (act)
+            g_simple_action_set_enabled(G_SIMPLE_ACTION(act), !in_grid);
+    }
 }
 
 /* -- action callbacks -- */

@@ -180,7 +180,8 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
     g_object_unref(ag);
 
     GtkShortcutController *sc = GTK_SHORTCUT_CONTROLLER(gtk_shortcut_controller_new());
-    gtk_shortcut_controller_set_scope(sc, GTK_SHORTCUT_SCOPE_MANAGED);
+    /* GLOBAL: fires in capture phase before VTE consumes the keystroke */
+    gtk_shortcut_controller_set_scope(sc, GTK_SHORTCUT_SCOPE_GLOBAL);
 
     static const struct {
         guint           key;
