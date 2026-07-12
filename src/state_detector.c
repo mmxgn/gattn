@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <vte/vte.h>
 
 /* Hook path: any process can write "working\n", "needs_input\n", etc. here */
 static void
@@ -41,6 +42,41 @@ poll_hook_file(gpointer data)
         session_set_state(s, SESSION_DONE);
 
     return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+on_silence(gpointer data)
+{
+    Session *s       = data;
+    s->idle_timer_id = 0;
+    session_set_state(s, SESSION_NEEDS_INPUT);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
+{
+    (void)term;
+    Session *s = data;
+    for (guint i = 0; i < len; i++) {
+        if (text[i] == '\r' || text[i] == '\n')
+            return; /* Enter: don't suppress — Claude is about to start working */
+    }
+    s->last_user_input_us = g_get_monotonic_time();
+}
+
+static void
+on_contents_changed(VteTerminal *term, gpointer data)
+{
+    (void)term;
+    Session *s = data;
+    /* Ignore echoes of user keystrokes (within 500 ms of a non-Enter commit) */
+    if (g_get_monotonic_time() - s->last_user_input_us < 500000)
+        return;
+    session_set_state(s, SESSION_WORKING);
+    if (s->idle_timer_id)
+        g_source_remove(s->idle_timer_id);
+    s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
 }
 
 static gboolean
@@ -204,8 +240,9 @@ state_detector_start(Session *s)
     g_snprintf(dir, sizeof(dir), "%s/gattn", g_get_user_runtime_dir());
     g_mkdir_with_parents(dir, 0700);
 
+    g_signal_connect(s->terminal, "commit", G_CALLBACK(on_user_input), s);
+    g_signal_connect(s->terminal, "contents-changed", G_CALLBACK(on_contents_changed), s);
     s->poll_id       = g_timeout_add_seconds(1, poll_hook_file, s);
-    s->idle_timer_id = g_timeout_add_seconds(1, poll_proc_state, s);
     s->cwd_timer_id  = g_timeout_add_seconds(3, poll_cwd, s);
     s->child_poll_id = g_timeout_add_seconds(2, poll_children, s);
 }

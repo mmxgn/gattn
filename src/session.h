@@ -31,6 +31,7 @@ struct Session {
     guint                 idle_timer_id;
     guint                 cwd_timer_id;
     guint                 child_poll_id;
+    gint64                last_user_input_us; /* suppress contents-changed while user types */
     int                   seen_child_pids[32];
     int                   seen_child_count;
     SessionStateChangedFn on_state_changed;
