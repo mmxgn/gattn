@@ -22,5 +22,14 @@ VTE regex on URLs (http/https/ftp/file/www.) and absolute paths; hover shows poi
 * DONE - Needs Planning - Make interface adaptive (e.g. resizing will hide the names only show icons, resizing more will hide icons as well or maybe show the icons vertically on top of screen). Be absolutely sure you respect Gnome HIG
 * DONE Diff editor is not currently mouse-free. I want to make proper shortcuts while in this mode for explaining and use of selection and opening on external diff editor. Show these shortcuts on the bottom left like in tha main window.
 * INPROGRESS Plan and implement accessibility - Continuous progress / Focus to make navigation with keyboard as quickly as possible.
+* TODO Grid mode should have a color-coded border for each.
+* TODO I want, in the Diff menu, to have a top "bar" with 1) the current commit message, (or uncommited on unstaged) but also some transport-like buttons (e.g. << >> ) that let me navigate (and ask questions and use) previous commits in the history.
 * TODO Add an icon for when claude is compacting discussion
 * TODO I want to be able to open ssh sessions/w claude to a machine in the same way. Add support for remote claude sessions with the same/or as similar as possible functionality without sacrificing too much performance (maybe a remote session should have a different icon)
+* TODO Sub-agents should be killed
+* TODO Hooks for Claude for getting things such as information about agents
+* TODO New session / open session functionality lets you type in paths directly
+Could be emacs like, like ~/claude:~ opens a claude session, or ~/ssh:~ opens an ssh session
+* TODO (Needs severe planning) Context sharing between sessions
+- Maybe colours signifying shared contexts
+- Connection map

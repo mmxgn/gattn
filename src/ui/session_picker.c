@@ -556,6 +556,7 @@ make_recent_row(const char *path, const ActionData *tmpl)
     static const struct {
         const char *icon, *tip, *cmd;
     } btns[] = {
+        { "starred-symbolic", "New Claude session", "claude" },
         { "document-open-recent-symbolic", "Resume Claude session", "claude --continue" },
         { "utilities-terminal-symbolic", "Open Shell", "" },
     };

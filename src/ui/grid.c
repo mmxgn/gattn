@@ -145,7 +145,7 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
     GtkWidget *back = gtk_button_new_from_icon_name("go-previous-symbolic");
     gtk_widget_set_tooltip_text(back, "Split view (Ctrl+G)");
     g_signal_connect(back, "clicked", back_cb, back_data);
-    adw_header_bar_pack_start(ADW_HEADER_BAR(hdr), back);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(hdr), back);
 
     GtkWidget *wrapper = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(wrapper), hdr);

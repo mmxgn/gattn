@@ -246,7 +246,8 @@ state_detector_start_cwd(Session *s)
 void
 state_detector_start_child(Session *s)
 {
-    s->poll_id = g_timeout_add_seconds(1, poll_proc_state, s);
+    s->poll_id      = g_timeout_add_seconds(1, poll_proc_state, s);
+    s->cwd_timer_id = g_timeout_add_seconds(3, poll_cwd, s);
 }
 
 void
