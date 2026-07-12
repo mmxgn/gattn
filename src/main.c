@@ -25,6 +25,13 @@ static const char CSS[] = ".dot-idle        { color: gray;    }"
                           ".dot-needs-input { color: #4CAF50; }"
                           ".dot-blocked     { color: #F44336; }"
                           ".dot-done        { color: #2196F3; }"
+                          /* grid tile border colours — GNOME palette */
+                          "frame.tile-0 > border { border-color: #3584e4; border-width: 2px; }"
+                          "frame.tile-1 > border { border-color: #e01b24; border-width: 2px; }"
+                          "frame.tile-2 > border { border-color: #2ec27e; border-width: 2px; }"
+                          "frame.tile-3 > border { border-color: #e5a50a; border-width: 2px; }"
+                          "frame.tile-4 > border { border-color: #9141ac; border-width: 2px; }"
+                          "frame.tile-5 > border { border-color: #ed5b00; border-width: 2px; }"
                           "";
 
 static struct {

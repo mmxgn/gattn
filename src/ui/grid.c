@@ -134,6 +134,9 @@ grid_enter(GtkWidget *outer_stack, GtkWidget *split, SessionList *sessions, GCal
             continue;
         frames[tile]    = gtk_frame_new(s->name);
         gn->tiles[tile] = s;
+        char tile_class[12];
+        g_snprintf(tile_class, sizeof(tile_class), "tile-%d", tile % 6);
+        gtk_widget_add_css_class(frames[tile], tile_class);
         gtk_widget_set_hexpand(frames[tile], TRUE);
         gtk_widget_set_vexpand(frames[tile], TRUE);
         gtk_grid_attach(GTK_GRID(grid), frames[tile], tile % 2, tile / 2, 1, 1);
