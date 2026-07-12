@@ -665,6 +665,7 @@ on_rename_response(AdwAlertDialog *d, const char *resp, gpointer data)
         const char *txt = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(rc->entry)));
         if (txt && *txt) {
             g_strlcpy(rc->s->name, txt, sizeof(rc->s->name));
+            rc->s->user_renamed = TRUE;
             if (rc->s->name_label)
                 gtk_label_set_text(GTK_LABEL(rc->s->name_label), txt);
             session_refresh_a11y(rc->s);
