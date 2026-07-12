@@ -68,6 +68,14 @@ static const char *const dot_classes[] = {
     [SESSION_DONE]        = "dot-done",
 };
 
+static const char *const frame_classes[] = {
+    [SESSION_IDLE]        = "frame-idle",
+    [SESSION_WORKING]     = "frame-working",
+    [SESSION_NEEDS_INPUT] = "frame-needs-input",
+    [SESSION_BLOCKED]     = "frame-blocked",
+    [SESSION_DONE]        = "frame-done",
+};
+
 static const char *
 state_name(SessionState st)
 {
@@ -104,6 +112,16 @@ session_refresh_a11y(Session *s)
 }
 
 void
+session_set_grid_frame(Session *s, GtkWidget *frame)
+{
+    if (s->grid_frame)
+        gtk_widget_remove_css_class(s->grid_frame, frame_classes[s->state]);
+    s->grid_frame = frame;
+    if (frame)
+        gtk_widget_add_css_class(frame, frame_classes[s->state]);
+}
+
+void
 session_set_state(Session *s, SessionState state)
 {
     if (s->state == state)
@@ -111,6 +129,10 @@ session_set_state(Session *s, SessionState state)
     if (s->dot) {
         gtk_widget_remove_css_class(s->dot, dot_classes[s->state]);
         gtk_widget_add_css_class(s->dot, dot_classes[state]);
+    }
+    if (s->grid_frame) {
+        gtk_widget_remove_css_class(s->grid_frame, frame_classes[s->state]);
+        gtk_widget_add_css_class(s->grid_frame, frame_classes[state]);
     }
     s->state = state;
     session_refresh_a11y(s);

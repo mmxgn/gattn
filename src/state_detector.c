@@ -49,29 +49,34 @@ on_silence(gpointer data)
 {
     Session *s       = data;
     s->idle_timer_id = 0;
-    if (s->state != SESSION_WORKING)
-        return G_SOURCE_REMOVE;
-
-    SessionState next = SESSION_NEEDS_INPUT;
-
-    /* if the last visible terminal line contains a '?' it's a question prompt */
-    if (s->terminal) {
-        VteTerminal *term = VTE_TERMINAL(s->terminal);
-        long         col, row;
-        vte_terminal_get_cursor_position(term, &col, &row);
-        /* read from a few lines above cursor to capture the prompt line */
-        long  start = row > 5 ? row - 5 : 0;
-        char *text
-            = vte_terminal_get_text_range_format(term, VTE_FORMAT_TEXT, start, 0, row, col, NULL);
-        if (text) {
-            if (strstr(text, "?"))
-                next = SESSION_BLOCKED;
-            g_free(text);
-        }
-    }
-
-    session_set_state(s, next);
+    session_set_state(s, SESSION_NEEDS_INPUT);
     return G_SOURCE_REMOVE;
+}
+
+static void
+on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
+{
+    (void)term;
+    Session *s = data;
+    for (guint i = 0; i < len; i++) {
+        if (text[i] == '\r' || text[i] == '\n')
+            return; /* Enter: don't suppress — Claude is about to start working */
+    }
+    s->last_user_input_us = g_get_monotonic_time();
+}
+
+static void
+on_contents_changed(VteTerminal *term, gpointer data)
+{
+    (void)term;
+    Session *s = data;
+    /* Ignore echoes of user keystrokes (within 500 ms of a non-Enter commit) */
+    if (g_get_monotonic_time() - s->last_user_input_us < 500000)
+        return;
+    session_set_state(s, SESSION_WORKING);
+    if (s->idle_timer_id)
+        g_source_remove(s->idle_timer_id);
+    s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
 }
 
 static gboolean
@@ -129,7 +134,7 @@ poll_proc_state(gpointer data)
         char spath[64];
         g_snprintf(spath, sizeof(spath), "/proc/%d/syscall", s->pid);
         char        *sc   = NULL;
-        SessionState next = SESSION_IDLE;
+        SessionState next = SESSION_NEEDS_INPUT;
         if (g_file_get_contents(spath, &sc, NULL, NULL) && sc) {
             long nr = -1, fd = -1;
             if (sscanf(sc, "%ld %lx", &nr, &fd) == 2 && nr == __NR_read && fd == 0)
@@ -213,28 +218,6 @@ poll_children(gpointer data)
     memcpy(s->seen_child_pids, cur, (size_t)cur_count * sizeof(int));
 
     return G_SOURCE_CONTINUE;
-}
-
-static void
-on_user_input(VteTerminal *term, const char *text, guint len, gpointer data)
-{
-    (void)term;
-    (void)text;
-    (void)len;
-    Session *s = data;
-    if (s->state == SESSION_NEEDS_INPUT)
-        session_set_state(s, SESSION_WORKING);
-}
-
-static void
-on_contents_changed(VteTerminal *term, gpointer data)
-{
-    (void)term;
-    Session *s = data;
-    session_set_state(s, SESSION_WORKING);
-    if (s->idle_timer_id)
-        g_source_remove(s->idle_timer_id);
-    s->idle_timer_id = g_timeout_add_seconds(2, on_silence, s);
 }
 
 void
