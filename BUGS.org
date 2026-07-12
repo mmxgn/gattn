@@ -32,3 +32,9 @@ Registered the AdwApplication with G_APPLICATION_NON_UNIQUE so each launch runs 
 
 * DONE Shells show subprocesses as robots
 Added is_robot flag set in on_child_spawned only when parent is a claude session; sidebar uses is_robot for icon, indent, and grey styling
+
+* DONE There is no way to open a new session from "Recent directories" when clicking on a directory, there should be a way.
+Added a "New Claude session" (starred) icon button to each recent-dir row in make_recent_row
+
+* DONE When claude changes cwd (e.g. working on a worktree), it should be reflected on the sidebar
+state_detector_start_child now starts poll_cwd (3s interval) alongside poll_proc_state

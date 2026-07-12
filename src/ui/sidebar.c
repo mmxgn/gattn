@@ -51,6 +51,14 @@ typedef struct {
     GtkSourceView   *view;
     GtkListBox      *files_lb;
     Session         *session; /* non-null when opened from a claude session */
+    /* commit navigation */
+    char     **log_shas;
+    char     **log_subjects;
+    int        log_count;
+    int        log_idx; /* 0 = working tree, 1+ = history */
+    GtkLabel  *commit_label;
+    GtkWidget *prev_btn; /* older */
+    GtkWidget *next_btn; /* newer / toward HEAD */
 } DiffCtx;
 
 typedef struct {
@@ -82,7 +90,105 @@ on_diff_nav(GSimpleAction *a, GVariant *p, gpointer data)
 static void
 diff_ctx_free(gpointer d)
 {
-    g_free(d);
+    DiffCtx *ctx = d;
+    g_strfreev(ctx->log_shas);
+    g_strfreev(ctx->log_subjects);
+    g_free(ctx);
+}
+
+/* Rebuild the files listbox for the current ctx->log_idx. */
+static void
+populate_files_lb(DiffCtx *ctx)
+{
+    GtkListBoxRow *row;
+    while ((row = gtk_list_box_get_row_at_index(ctx->files_lb, 0)) != NULL)
+        gtk_list_box_remove(ctx->files_lb, GTK_WIDGET(row));
+
+    char *ns = NULL;
+    if (ctx->log_idx == 0) {
+        const char *argv[] = { "git", "diff", "HEAD", "--name-status", NULL };
+        ns                 = git_capture(ctx->cwd, argv);
+    } else {
+        const char *sha    = ctx->log_shas[ctx->log_idx - 1];
+        const char *argv[] = { "git", "show", "--name-status", "--format=", sha, NULL };
+        ns                 = git_capture(ctx->cwd, argv);
+    }
+
+    GtkListBoxRow *first = NULL;
+    if (ns && *ns) {
+        char **lines = g_strsplit(ns, "\n", -1);
+        for (int i = 0; lines[i] && *lines[i]; i++) {
+            char *tab = strrchr(lines[i], '\t');
+            if (!tab)
+                continue;
+            char status      = lines[i][0];
+            *tab             = '\0';
+            const char *file = tab + 1;
+
+            char       label[544];
+            GtkWidget *lbl = gtk_label_new(NULL);
+            g_snprintf(label, sizeof(label), "%c  %s", status, file);
+            gtk_label_set_text(GTK_LABEL(lbl), label);
+            gtk_label_set_xalign(GTK_LABEL(lbl), 0.0f);
+            gtk_widget_set_margin_start(lbl, 8);
+            gtk_widget_set_margin_end(lbl, 8);
+            gtk_widget_set_margin_top(lbl, 4);
+            gtk_widget_set_margin_bottom(lbl, 4);
+            gtk_widget_add_css_class(lbl, "monospace");
+
+            GtkWidget *r = gtk_list_box_row_new();
+            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(r), lbl);
+            g_object_set_data_full(G_OBJECT(r), "gattn-file", g_strdup(file), g_free);
+            gtk_list_box_append(ctx->files_lb, r);
+            if (!first)
+                first = GTK_LIST_BOX_ROW(r);
+        }
+        g_strfreev(lines);
+    }
+    g_free(ns);
+
+    if (first)
+        gtk_list_box_select_row(ctx->files_lb, first);
+    else
+        gtk_text_buffer_set_text(GTK_TEXT_BUFFER(ctx->buf),
+                                 ctx->log_idx == 0 ? "No changes (or not a git repository)."
+                                                   : "No files changed in this commit.",
+                                 -1);
+}
+
+static void
+update_commit_nav(DiffCtx *ctx)
+{
+    const char *subject
+        = ctx->log_idx == 0 ? "Uncommitted changes" : ctx->log_subjects[ctx->log_idx - 1];
+    gtk_label_set_text(ctx->commit_label, subject);
+    gtk_widget_set_sensitive(ctx->prev_btn, ctx->log_idx < ctx->log_count);
+    gtk_widget_set_sensitive(ctx->next_btn, ctx->log_idx > 0);
+    populate_files_lb(ctx);
+}
+
+static void
+act_commit_prev(GSimpleAction *a, GVariant *p, gpointer data)
+{
+    (void)a;
+    (void)p;
+    DiffCtx *ctx = data;
+    if (ctx->log_idx < ctx->log_count) {
+        ctx->log_idx++;
+        update_commit_nav(ctx);
+    }
+}
+
+static void
+act_commit_next(GSimpleAction *a, GVariant *p, gpointer data)
+{
+    (void)a;
+    (void)p;
+    DiffCtx *ctx = data;
+    if (ctx->log_idx > 0) {
+        ctx->log_idx--;
+        update_commit_nav(ctx);
+    }
 }
 
 static void
@@ -95,8 +201,15 @@ load_file_diff(DiffCtx *ctx, const char *file)
     gtk_source_buffer_set_language(ctx->buf, diff_lang);
     (void)lang;
 
-    const char *argv[] = { "git", "diff", "HEAD", "--", file, NULL };
-    char       *out    = git_capture(ctx->cwd, argv);
+    char *out = NULL;
+    if (ctx->log_idx == 0) {
+        const char *argv[] = { "git", "diff", "HEAD", "--", file, NULL };
+        out                = git_capture(ctx->cwd, argv);
+    } else {
+        const char *sha    = ctx->log_shas[ctx->log_idx - 1];
+        const char *argv[] = { "git", "show", sha, "--", file, NULL };
+        out                = git_capture(ctx->cwd, argv);
+    }
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(ctx->buf), out && *out ? out : "", -1);
     g_free(out);
 }
@@ -130,8 +243,14 @@ send_diff_to_claude(DiffCtx *ctx, gboolean wrap)
         if (row) {
             const char *file = g_object_get_data(G_OBJECT(row), "gattn-file");
             if (file) {
-                const char *argv[] = { "git", "diff", "HEAD", "--", file, NULL };
-                body               = git_capture(ctx->cwd, argv);
+                if (ctx->log_idx == 0) {
+                    const char *argv[] = { "git", "diff", "HEAD", "--", file, NULL };
+                    body               = git_capture(ctx->cwd, argv);
+                } else {
+                    const char *sha    = ctx->log_shas[ctx->log_idx - 1];
+                    const char *argv[] = { "git", "show", sha, "--", file, NULL };
+                    body               = git_capture(ctx->cwd, argv);
+                }
             }
         }
     }
@@ -184,9 +303,9 @@ send_diff_to_claude(DiffCtx *ctx, gboolean wrap)
     }
 
     /* Close the dialog so the user can review/submit the pasted text. */
-    GtkWidget *dlg = gtk_widget_get_ancestor(GTK_WIDGET(ctx->files_lb), ADW_TYPE_DIALOG);
+    GtkWidget *dlg = gtk_widget_get_ancestor(GTK_WIDGET(ctx->files_lb), GTK_TYPE_WINDOW);
     if (dlg)
-        adw_dialog_close(ADW_DIALOG(dlg));
+        gtk_window_close(GTK_WINDOW(dlg));
 }
 
 static void
@@ -249,11 +368,13 @@ on_diff_external(GtkButton *btn, gpointer data)
             "`git config --global diff.tool <name>`."));
         adw_alert_dialog_add_responses(alert, "ok", "OK", NULL);
         adw_alert_dialog_set_default_response(alert, "ok");
-        adw_dialog_present(ADW_DIALOG(alert), GTK_WIDGET(btn));
+        GtkWidget *parent_win = gtk_widget_get_ancestor(GTK_WIDGET(ctx->files_lb), GTK_TYPE_WINDOW);
+        adw_dialog_present(ADW_DIALOG(alert), parent_win);
         return;
     }
 
-    char *argv[] = { "git", "difftool", "-y", "HEAD", "--", (char *)file, NULL };
+    const char *ref    = ctx->log_idx == 0 ? "HEAD" : ctx->log_shas[ctx->log_idx - 1];
+    char       *argv[] = { "git", "difftool", "-y", (char *)ref, "--", (char *)file, NULL };
     g_spawn_async(ctx->cwd, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
 }
 
@@ -283,13 +404,9 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     if (!cwd[0])
         return;
 
-    const char *name_status_argv[] = { "git", "diff", "HEAD", "--name-status", NULL };
-    char       *ns                 = git_capture(cwd, name_status_argv);
-
-    AdwDialog *dialog = ADW_DIALOG(adw_dialog_new());
-    adw_dialog_set_title(dialog, cwd);
-    adw_dialog_set_content_width(dialog, 1000);
-    adw_dialog_set_content_height(dialog, 700);
+    GtkWidget *dialog = adw_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), cwd);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 1000, 700);
 
     GtkWidget *toolbar = adw_toolbar_view_new();
     GtkWidget *header  = adw_header_bar_new();
@@ -303,48 +420,65 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     if (is_claude)
         ctx->session = s;
 
+    /* Load git log for commit navigation. */
+    {
+        const char *log_argv[] = { "git", "log", "--pretty=format:%H\t%s", "-n", "50", NULL };
+        char       *log_out    = git_capture(cwd, log_argv);
+        if (log_out && *log_out) {
+            char **lines = g_strsplit(log_out, "\n", -1);
+            int    n     = 0;
+            while (lines[n] && *lines[n])
+                n++;
+            ctx->log_shas     = g_new0(char *, n + 1);
+            ctx->log_subjects = g_new0(char *, n + 1);
+            ctx->log_count    = n;
+            for (int i = 0; i < n; i++) {
+                char *tab = strchr(lines[i], '\t');
+                if (tab) {
+                    ctx->log_shas[i]     = g_strndup(lines[i], tab - lines[i]);
+                    ctx->log_subjects[i] = g_strdup(tab + 1);
+                } else {
+                    ctx->log_shas[i]     = g_strdup(lines[i]);
+                    ctx->log_subjects[i] = g_strdup("");
+                }
+            }
+            g_strfreev(lines);
+        }
+        g_free(log_out);
+    }
+
     GtkWidget *external = gtk_button_new_with_label("Use External Diff Tool");
     gtk_widget_set_tooltip_text(external, "Open this file with `git difftool` (Meld, kdiff3, …)");
     g_signal_connect(external, "clicked", G_CALLBACK(on_diff_external), ctx);
     adw_header_bar_pack_end(ADW_HEADER_BAR(header), external);
 
+    /* Commit navigation bar */
+    GtkWidget *nav_bar  = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *prev_btn = gtk_button_new_from_icon_name("go-previous-symbolic");
+    GtkWidget *next_btn = gtk_button_new_from_icon_name("go-next-symbolic");
+    GtkWidget *clbl     = gtk_label_new("Uncommitted changes");
+    ctx->commit_label   = GTK_LABEL(clbl);
+    ctx->prev_btn       = prev_btn;
+    ctx->next_btn       = next_btn;
+    gtk_widget_set_tooltip_text(prev_btn, "Older commit (Alt+[)");
+    gtk_widget_set_tooltip_text(next_btn, "Newer / uncommitted (Alt+])");
+    gtk_widget_set_hexpand(clbl, TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(clbl), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_margin_start(nav_bar, 8);
+    gtk_widget_set_margin_end(nav_bar, 8);
+    gtk_widget_set_margin_top(nav_bar, 4);
+    gtk_widget_set_margin_bottom(nav_bar, 4);
+    gtk_box_append(GTK_BOX(nav_bar), prev_btn);
+    gtk_box_append(GTK_BOX(nav_bar), clbl);
+    gtk_box_append(GTK_BOX(nav_bar), next_btn);
+    gtk_widget_set_sensitive(next_btn, FALSE); /* starts at idx=0, can't go newer */
+    gtk_widget_set_sensitive(prev_btn, ctx->log_count > 0);
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), nav_bar);
+
     GtkWidget *files_lb = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(files_lb), GTK_SELECTION_SINGLE);
     gtk_widget_add_css_class(files_lb, "navigation-sidebar");
     ctx->files_lb = GTK_LIST_BOX(files_lb);
-
-    GtkListBoxRow *first_row = NULL;
-    if (ns && *ns) {
-        char **lines = g_strsplit(ns, "\n", -1);
-        for (int i = 0; lines[i] && *lines[i]; i++) {
-            /* Format: "M\tpath" or "R100\told\tnew" — take the last field as filename. */
-            char *tab = strrchr(lines[i], '\t');
-            if (!tab)
-                continue;
-            char status      = lines[i][0];
-            *tab             = '\0';
-            const char *file = tab + 1;
-
-            char label[544];
-            g_snprintf(label, sizeof(label), "%c  %s", status, file);
-            GtkWidget *lbl = gtk_label_new(label);
-            gtk_label_set_xalign(GTK_LABEL(lbl), 0.0f);
-            gtk_widget_set_margin_start(lbl, 8);
-            gtk_widget_set_margin_end(lbl, 8);
-            gtk_widget_set_margin_top(lbl, 4);
-            gtk_widget_set_margin_bottom(lbl, 4);
-            gtk_widget_add_css_class(lbl, "monospace");
-
-            GtkWidget *row = gtk_list_box_row_new();
-            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), lbl);
-            g_object_set_data_full(G_OBJECT(row), "gattn-file", g_strdup(file), g_free);
-            gtk_list_box_append(GTK_LIST_BOX(files_lb), row);
-            if (!first_row)
-                first_row = GTK_LIST_BOX_ROW(row);
-        }
-        g_strfreev(lines);
-    }
-    g_free(ns);
 
     GtkWidget *left_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(left_scroll), GTK_POLICY_NEVER,
@@ -419,7 +553,19 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     g_object_unref(foc_files);
     g_object_unref(foc_src);
 
-    gtk_widget_insert_action_group(GTK_WIDGET(dialog), "diff", G_ACTION_GROUP(ag));
+    GSimpleAction *cprev = g_simple_action_new("commit-prev", NULL);
+    GSimpleAction *cnext = g_simple_action_new("commit-next", NULL);
+    g_signal_connect(cprev, "activate", G_CALLBACK(act_commit_prev), ctx);
+    g_signal_connect(cnext, "activate", G_CALLBACK(act_commit_next), ctx);
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(cprev));
+    g_action_map_add_action(G_ACTION_MAP(ag), G_ACTION(cnext));
+    g_object_unref(cprev);
+    g_object_unref(cnext);
+
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(prev_btn), "diff.commit-prev");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(next_btn), "diff.commit-next");
+
+    gtk_widget_insert_action_group(dialog, "diff", G_ACTION_GROUP(ag));
     g_object_unref(ag);
 
     /* Keyboard shortcuts at managed scope — fire from any focused widget in the dialog. */
@@ -442,12 +588,14 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
         { GDK_KEY_t, GDK_ALT_MASK, "diff.external" },
         { GDK_KEY_e, GDK_ALT_MASK, "diff.explain" },
         { GDK_KEY_u, GDK_ALT_MASK, "diff.use-in-prompt" },
+        { GDK_KEY_bracketleft, GDK_ALT_MASK, "diff.commit-prev" },
+        { GDK_KEY_bracketright, GDK_ALT_MASK, "diff.commit-next" },
     };
     for (size_t i = 0; i < sizeof(cuts) / sizeof(*cuts); i++)
         gtk_shortcut_controller_add_shortcut(
             sc, gtk_shortcut_new(gtk_keyval_trigger_new(cuts[i].key, cuts[i].mod),
                                  gtk_named_action_new(cuts[i].action)));
-    gtk_widget_add_controller(GTK_WIDGET(dialog), GTK_EVENT_CONTROLLER(sc));
+    gtk_widget_add_controller(dialog, GTK_EVENT_CONTROLLER(sc));
 
     GtkWidget *right_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(right_scroll), view);
@@ -464,15 +612,12 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     g_signal_connect_data(files_lb, "row-selected", G_CALLBACK(on_diff_file_selected), ctx,
                           (GClosureNotify)diff_ctx_free, 0);
 
-    if (first_row)
-        gtk_list_box_select_row(GTK_LIST_BOX(files_lb), first_row);
-    else
-        gtk_text_buffer_set_text(GTK_TEXT_BUFFER(buf), "No changes (or not a git repository).", -1);
+    populate_files_lb(ctx);
 
     /* Status bar with shortcuts. */
     static const Hint hints[] = {
-        { "M-h/l", "Files/Code" }, { "M-↑/↓ k/j", "File" }, { "M-T", "External" },
-        { "M-E", "Explain" },      { "M-U", "Use" },
+        { "M-[/]", "Commit" }, { "M-h/l", "Files/Code" }, { "M-↑/↓ k/j", "File" },
+        { "M-T", "External" }, { "M-E", "Explain" },      { "M-U", "Use" },
     };
     GtkWidget *statusbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
     gtk_widget_set_margin_start(statusbar, 10);
@@ -494,13 +639,14 @@ sidebar_show_diff(Session *s, GtkWidget *parent_widget)
     adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(toolbar), statusbar);
 
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), paned);
-    adw_dialog_set_child(dialog, toolbar);
+    adw_window_set_content(ADW_WINDOW(dialog), toolbar);
 
     GtkRoot *root = gtk_widget_get_root(parent_widget);
-    adw_dialog_present(dialog, root ? GTK_WIDGET(root) : parent_widget);
+    if (root)
+        gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(root));
+    gtk_window_present(GTK_WINDOW(dialog));
 
-    if (first_row)
-        gtk_widget_grab_focus(files_lb);
+    gtk_widget_grab_focus(files_lb);
 }
 
 /* -- rename -- */
@@ -799,8 +945,12 @@ make_row(Session *s)
 
     GtkWidget *row = gtk_list_box_row_new();
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
-    if (s->is_robot && s->cmd[0])
-        gtk_widget_set_tooltip_text(row, s->cmd);
+    if (s->is_robot) {
+        gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
+        gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+        if (s->cmd[0])
+            gtk_widget_set_tooltip_text(row, s->cmd);
+    }
     g_object_set_data(G_OBJECT(row), "gattn-session", s);
     g_object_set_data(G_OBJECT(row), "gattn-row-actions", actions);
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
@@ -1027,6 +1177,60 @@ on_new_clicked(GtkButton *btn, gpointer data)
         ctx->fn(split, ctx->data);
 }
 
+typedef struct {
+    GtkWidget *sidebar; /* sidebar_box — width source */
+    GtkWidget *split;   /* AdwNavigationSplitView — height source */
+    GtkWidget *section;
+    int        last_nat_w;
+    int        last_nat_h;
+} ShortcutVisCtx;
+
+static void
+update_shortcut_visibility(ShortcutVisCtx *ctx)
+{
+    int w = gtk_widget_get_width(ctx->sidebar);
+    int h = gtk_widget_get_height(ctx->split);
+    int min, nat;
+
+    gtk_widget_measure(ctx->section, GTK_ORIENTATION_HORIZONTAL, -1, &min, &nat, NULL, NULL);
+    (void)min;
+    if (nat > 0)
+        ctx->last_nat_w = nat;
+
+    gtk_widget_measure(ctx->section, GTK_ORIENTATION_VERTICAL, -1, &min, &nat, NULL, NULL);
+    (void)min;
+    if (nat > 0)
+        ctx->last_nat_h = nat;
+
+    gboolean wide_enough = (ctx->last_nat_w == 0) || (w >= ctx->last_nat_w);
+    /* 250px headroom in the window above the shortcut bar for a usable session list */
+    gboolean tall_enough = (ctx->last_nat_h == 0) || (h >= ctx->last_nat_h + 250);
+    gboolean show        = wide_enough && tall_enough;
+    if (gtk_widget_get_visible(ctx->section) != show)
+        gtk_widget_set_visible(ctx->section, show);
+}
+
+static void
+on_sidebar_size_changed(GObject *obj, GParamSpec *ps, gpointer data)
+{
+    (void)obj;
+    (void)ps;
+    update_shortcut_visibility((ShortcutVisCtx *)data);
+}
+
+static void
+on_sidebar_toggle(GtkButton *btn, gpointer data)
+{
+    (void)btn;
+    AdwNavigationSplitView *sv = ADW_NAVIGATION_SPLIT_VIEW(data);
+    if (adw_navigation_split_view_get_collapsed(sv)) {
+        adw_navigation_split_view_set_collapsed(sv, FALSE);
+    } else {
+        adw_navigation_split_view_set_show_content(sv, TRUE);
+        adw_navigation_split_view_set_collapsed(sv, TRUE);
+    }
+}
+
 GtkWidget *
 sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
 {
@@ -1060,7 +1264,6 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
     GtkWidget *search_btn = gtk_toggle_button_new();
     gtk_button_set_icon_name(GTK_BUTTON(search_btn), "system-search-symbolic");
     gtk_widget_set_tooltip_text(search_btn, "Search sessions (Ctrl+F)");
-    adw_header_bar_pack_end(ADW_HEADER_BAR(sidebar_header), search_btn);
 
     GtkWidget *search_entry = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(search_entry), "Search sessions…");
@@ -1083,10 +1286,13 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
     gtk_widget_set_vexpand(sidebar_toolbar, TRUE);
 
     /* Shortcut bar outside the toolbar so it has no toolbar chrome */
+    GtkWidget *shortcut_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(shortcut_section), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(shortcut_section), make_shortcut_bar());
+
     GtkWidget *sidebar_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(sidebar_box), sidebar_toolbar);
-    gtk_box_append(GTK_BOX(sidebar_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    gtk_box_append(GTK_BOX(sidebar_box), make_shortcut_bar());
+    gtk_box_append(GTK_BOX(sidebar_box), shortcut_section);
 
     AdwNavigationPage *sidebar_page = adw_navigation_page_new(sidebar_box, "Sessions");
 
@@ -1096,10 +1302,34 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
     adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(split),
                                           ADW_NAVIGATION_PAGE(content_page));
 
+    ShortcutVisCtx *vis_ctx = g_new0(ShortcutVisCtx, 1);
+    vis_ctx->sidebar        = sidebar_box;
+    vis_ctx->split          = split;
+    vis_ctx->section        = shortcut_section;
+    g_signal_connect(sidebar_box, "notify::width", G_CALLBACK(on_sidebar_size_changed), vis_ctx);
+    g_signal_connect(split, "notify::height", G_CALLBACK(on_sidebar_size_changed), vis_ctx);
+    g_object_set_data_full(G_OBJECT(split), "gattn-shortcut-vis", vis_ctx, g_free);
+
     g_object_set_data(G_OBJECT(split), "gattn-listbox", lb);
     g_object_set_data(G_OBJECT(split), "gattn-stack", stack);
     g_object_set_data(G_OBJECT(split), "gattn-content-header", content_header);
     g_object_set_data(G_OBJECT(split), "gattn-searchbar", search_bar);
+
+    /* In the content header: hide the auto back-button; add a restore-sidebar button
+       that is only visible when the sidebar is collapsed. */
+    adw_header_bar_set_show_back_button(ADW_HEADER_BAR(content_header), FALSE);
+    GtkWidget *restore_sidebar = gtk_button_new_from_icon_name("sidebar-show-symbolic");
+    gtk_widget_set_tooltip_text(restore_sidebar, "Show sidebar");
+    g_signal_connect(restore_sidebar, "clicked", G_CALLBACK(on_sidebar_toggle), split);
+    g_object_bind_property(split, "collapsed", restore_sidebar, "visible", G_BINDING_SYNC_CREATE);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(content_header), restore_sidebar);
+
+    /* Sidebar toggle — pack_start leftmost, search to its right. */
+    GtkWidget *sidebar_toggle = gtk_button_new_from_icon_name("sidebar-show-symbolic");
+    gtk_widget_set_tooltip_text(sidebar_toggle, "Toggle sidebar");
+    g_signal_connect(sidebar_toggle, "clicked", G_CALLBACK(on_sidebar_toggle), split);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(sidebar_header), sidebar_toggle);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(sidebar_header), search_btn);
 
     NewBtnCtx *ctx = g_new(NewBtnCtx, 1);
     ctx->fn        = on_new;
@@ -1196,7 +1426,7 @@ sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data)
     GtkWidget *hamburger = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(hamburger), "open-menu-symbolic");
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(hamburger), GTK_WIDGET(pop));
-    adw_header_bar_pack_start(ADW_HEADER_BAR(sidebar_header), hamburger);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(sidebar_header), hamburger);
 
     for (int i = 0; i < sessions->count; i++)
         if (sessions->items[i])

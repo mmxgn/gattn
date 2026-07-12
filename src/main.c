@@ -447,9 +447,17 @@ apply_prefs_to_terminal(VteTerminal *t, const GattnPrefs *p)
     vte_terminal_set_font(t, fd);
     pango_font_description_free(fd);
     vte_terminal_set_font_scale(t, app.zoom);
-    GdkRGBA fg = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 1 };
-    gdk_rgba_parse(&fg, p->fg);
-    gdk_rgba_parse(&bg, p->bg);
+    GdkRGBA fg, bg;
+    if (g_strcmp0(p->theme, "Default") == 0) {
+        gboolean dark = adw_style_manager_get_dark(adw_style_manager_get_default());
+        gdk_rgba_parse(&fg, dark ? "#dedede" : "#2b2b2b");
+        gdk_rgba_parse(&bg, dark ? "#242424" : "#fafafa");
+    } else {
+        fg = (GdkRGBA){ 1, 1, 1, 1 };
+        bg = (GdkRGBA){ 0, 0, 0, 1 };
+        gdk_rgba_parse(&fg, p->fg);
+        gdk_rgba_parse(&bg, p->bg);
+    }
     vte_terminal_set_colors(t, &fg, &bg, NULL, 0);
 }
 
@@ -461,6 +469,15 @@ on_prefs_changed(gpointer data)
     for (int i = 0; i < sessions.count; i++)
         if (sessions.items[i] && sessions.items[i]->terminal)
             apply_prefs_to_terminal(VTE_TERMINAL(sessions.items[i]->terminal), &p);
+}
+
+static void
+on_dark_changed(AdwStyleManager *sm, GParamSpec *ps, gpointer d)
+{
+    (void)sm;
+    (void)ps;
+    (void)d;
+    on_prefs_changed(NULL);
 }
 
 static void
@@ -587,6 +604,9 @@ on_color_scheme(GSimpleAction *a, GVariant *param, gpointer d)
         scheme = ADW_COLOR_SCHEME_FORCE_DARK;
     adw_style_manager_set_color_scheme(adw_style_manager_get_default(), scheme);
     g_simple_action_set_state(a, param);
+    GattnPrefs p = prefs_load();
+    g_strlcpy(p.color_scheme, v, sizeof(p.color_scheme));
+    prefs_save(&p);
 }
 
 static void
@@ -742,11 +762,24 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "fullscreen", G_CALLBACK(on_fullscreen), NULL);
 
     /* Stateful action driving the three theme buttons in the hamburger. */
-    GSimpleAction *cs_act = g_simple_action_new_stateful("color-scheme", G_VARIANT_TYPE_STRING,
-                                                         g_variant_new_string("auto"));
+    GattnPrefs     saved_prefs = prefs_load();
+    const char    *saved_cs    = saved_prefs.color_scheme[0] ? saved_prefs.color_scheme : "auto";
+    GSimpleAction *cs_act      = g_simple_action_new_stateful("color-scheme", G_VARIANT_TYPE_STRING,
+                                                              g_variant_new_string(saved_cs));
     g_signal_connect(cs_act, "activate", G_CALLBACK(on_color_scheme), NULL);
     g_action_map_add_action(map, G_ACTION(cs_act));
     g_object_unref(cs_act);
+    /* Apply immediately so the style manager is in sync from the first frame. */
+    {
+        AdwColorScheme sc = ADW_COLOR_SCHEME_DEFAULT;
+        if (g_strcmp0(saved_cs, "light") == 0)
+            sc = ADW_COLOR_SCHEME_FORCE_LIGHT;
+        else if (g_strcmp0(saved_cs, "dark") == 0)
+            sc = ADW_COLOR_SCHEME_FORCE_DARK;
+        adw_style_manager_set_color_scheme(adw_style_manager_get_default(), sc);
+    }
+    g_signal_connect(adw_style_manager_get_default(), "notify::dark", G_CALLBACK(on_dark_changed),
+                     NULL);
 
     /* exit-grid is disabled until grid mode is entered */
     exit_grid_act = g_simple_action_new("exit-grid", NULL);

@@ -556,10 +556,11 @@ make_recent_row(const char *path, const ActionData *tmpl)
     static const struct {
         const char *icon, *tip, *cmd;
     } btns[] = {
+        { "starred-symbolic", "New Claude session", "claude" },
         { "document-open-recent-symbolic", "Resume Claude session", "claude --continue" },
         { "utilities-terminal-symbolic", "Open Shell", "" },
     };
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < (int)(sizeof(btns) / sizeof(*btns)); i++) {
         ActionData *ad = g_new(ActionData, 1);
         *ad            = *tmpl;
         g_strlcpy(ad->cmd, btns[i].cmd, sizeof(ad->cmd));
