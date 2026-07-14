@@ -661,6 +661,19 @@ on_open_folder(GSimpleAction *a, GVariant *p, gpointer d)
 }
 
 static void
+on_open_shell_here(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    Session *s = selected_session();
+    if (!s)
+        return;
+    const char *cwd = s->cwd[0] ? s->cwd : g_get_home_dir();
+    add_session(app.split, NULL, cwd);
+}
+
+static void
 on_new_session_action(GSimpleAction *a, GVariant *p, gpointer d)
 {
     (void)a;
@@ -777,6 +790,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "raise", G_CALLBACK(on_raise), app_obj);
     register_action(map, "show-diff", G_CALLBACK(on_show_diff), NULL);
     register_action(map, "open-folder", G_CALLBACK(on_open_folder), NULL);
+    register_action(map, "open-shell-here", G_CALLBACK(on_open_shell_here), NULL);
     register_action(map, "resume-claude", G_CALLBACK(on_resume_claude), NULL);
     register_action(map, "focus-sidebar", G_CALLBACK(on_focus_sidebar), NULL);
     register_action(map, "focus-content", G_CALLBACK(on_focus_content), NULL);
@@ -883,6 +897,7 @@ main(int argc, char *argv[])
         { "app.exit-grid", "<Control>g" },
         { "app.show-diff", "<Control><Shift>d" },
         { "app.open-folder", "<Control><Shift>o" },
+        { "app.open-shell-here", "<Control><Shift>t" },
         { "app.resume-claude", "<Control><Shift>r" },
         { "app.focus-sidebar", "<Alt>Left" },
         { "app.focus-content", "<Alt>Right" },

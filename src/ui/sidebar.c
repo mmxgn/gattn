@@ -1177,8 +1177,8 @@ make_shortcut_bar(void)
         { "^⇧D", "Diff" },        { "^F", "Search" },
     };
     static const Hint open[] = {
-        { "^⇧R", "Resume Claude" }, { "^⇧O", "Open folder" }, { "F2", "Rename" },
-        { "^+/-", "Zoom" },         { "F11", "Fullscreen" },
+        { "^⇧R", "Resume session" }, { "^⇧O", "Open folder" }, { "^⇧T", "Open shell here" },
+        { "F2", "Rename" },          { "^+/-", "Zoom" },       { "F11", "Fullscreen" },
     };
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
