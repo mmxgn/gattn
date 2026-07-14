@@ -46,6 +46,7 @@ Everything is reachable without a mouse:
 | `Ctrl+F` | Search / filter sessions |
 | `Ctrl+G` | Toggle grid view |
 | `Ctrl+Shift+D` | Show diff |
+| `Ctrl+Shift+T` | Open shell in the current session's directory |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset terminal font |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy selection / paste into the terminal |
 | `F11` | Fullscreen |
