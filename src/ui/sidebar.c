@@ -919,8 +919,28 @@ make_row(Session *s)
     } else {
         labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         gtk_widget_set_hexpand(labels, TRUE);
-        gtk_box_append(GTK_BOX(labels), name_lbl);
 
+        /* Row 1: [name] · [branch]  -- name ellipsizes first, branch stays intact. */
+        GtkWidget *name_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        gtk_box_append(GTK_BOX(name_row), name_lbl);
+
+        GtkWidget *branch_sep = gtk_label_new("·");
+        gtk_widget_add_css_class(branch_sep, "dim-label");
+        gtk_widget_set_visible(branch_sep, s->branch[0] != '\0');
+        s->branch_sep = branch_sep;
+        gtk_box_append(GTK_BOX(name_row), branch_sep);
+
+        GtkWidget *branch_lbl = gtk_label_new(s->branch);
+        gtk_label_set_xalign(GTK_LABEL(branch_lbl), 0.0f);
+        gtk_label_set_ellipsize(GTK_LABEL(branch_lbl), PANGO_ELLIPSIZE_END);
+        gtk_widget_add_css_class(branch_lbl, "dim-label");
+        gtk_widget_set_visible(branch_lbl, s->branch[0] != '\0');
+        s->branch_label = branch_lbl;
+        gtk_box_append(GTK_BOX(name_row), branch_lbl);
+
+        gtk_box_append(GTK_BOX(labels), name_row);
+
+        /* Row 2: cwd (dim). */
         char cwd_display[256] = "~";
         if (s->cwd[0]) {
             const char *base = strrchr(s->cwd, '/');
@@ -938,6 +958,7 @@ make_row(Session *s)
     }
 
     GtkWidget *actions = NULL;
+    GtkWidget *content = box;
     if (!s->parent_id) {
         actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_box_append(GTK_BOX(actions), make_icon_btn("folder-open-symbolic", "Open folder",
@@ -949,11 +970,18 @@ make_row(Session *s)
                                                        G_CALLBACK(on_diff_btn_clicked), s));
         gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Close session",
                                                        G_CALLBACK(on_close_btn_clicked), s));
-        gtk_box_append(GTK_BOX(box), actions);
+        /* Actions float on top of the row via GtkOverlay so they don't steal
+           horizontal space from the labels. Hover fades them in over the branch. */
+        gtk_widget_set_halign(actions, GTK_ALIGN_END);
+        gtk_widget_set_valign(actions, GTK_ALIGN_CENTER);
+        gtk_widget_set_margin_end(actions, 4);
+        content = gtk_overlay_new();
+        gtk_overlay_set_child(GTK_OVERLAY(content), box);
+        gtk_overlay_add_overlay(GTK_OVERLAY(content), actions);
     }
 
     GtkWidget *row = gtk_list_box_row_new();
-    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), content);
     if (s->is_robot) {
         gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
         gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
@@ -963,18 +991,23 @@ make_row(Session *s)
     g_object_set_data(G_OBJECT(row), "gattn-session", s);
     g_object_set_data(G_OBJECT(row), "gattn-row-actions", actions);
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
+    g_object_set_data(G_OBJECT(row), "gattn-row-branch-sep", s->branch_sep);
+    g_object_set_data(G_OBJECT(row), "gattn-row-branch", s->branch_label);
     session_refresh_a11y(s);
 
     /* Hover / focus reveal for the action buttons: hidden by default. */
-    gtk_widget_set_visible(actions, FALSE);
-    GtkEventController *motion = gtk_event_controller_motion_new();
-    g_signal_connect(motion, "enter", G_CALLBACK(on_row_pointer_enter), actions);
-    g_signal_connect(motion, "leave", G_CALLBACK(on_row_pointer_leave), actions);
-    gtk_widget_add_controller(row, motion);
-    GtkEventController *focus_ctl = gtk_event_controller_focus_new();
-    g_signal_connect(focus_ctl, "enter", G_CALLBACK(on_row_focus_enter), actions);
-    g_signal_connect(focus_ctl, "leave", G_CALLBACK(on_row_focus_leave), actions);
-    gtk_widget_add_controller(row, focus_ctl);
+    if (actions) {
+        gtk_widget_set_opacity(actions, 0.0);
+        gtk_widget_set_can_target(actions, FALSE);
+        GtkEventController *motion = gtk_event_controller_motion_new();
+        g_signal_connect(motion, "enter", G_CALLBACK(on_row_pointer_enter), actions);
+        g_signal_connect(motion, "leave", G_CALLBACK(on_row_pointer_leave), actions);
+        gtk_widget_add_controller(row, motion);
+        GtkEventController *focus_ctl = gtk_event_controller_focus_new();
+        g_signal_connect(focus_ctl, "enter", G_CALLBACK(on_row_focus_enter), actions);
+        g_signal_connect(focus_ctl, "leave", G_CALLBACK(on_row_focus_leave), actions);
+        gtk_widget_add_controller(row, focus_ctl);
+    }
 
     GtkGesture *rc = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rc), GDK_BUTTON_SECONDARY);
@@ -1032,14 +1065,50 @@ sidebar_toggle_search(GtkWidget *split)
     gtk_search_bar_set_search_mode(bar, !on);
 }
 
+/* Single source of truth for row visibility. Combines:
+   - compact level (2 hides cwd + branch)
+   - hover/focus (reveals actions AND hides branch so icons sit on empty space)
+   - branch content (empty branch keeps the separator+label invisible) */
+static void
+apply_row_visibility(GtkListBoxRow *row)
+{
+    Session   *s       = g_object_get_data(G_OBJECT(row), "gattn-session");
+    GtkWidget *cwd     = g_object_get_data(G_OBJECT(row), "gattn-row-cwd");
+    GtkWidget *br      = g_object_get_data(G_OBJECT(row), "gattn-row-branch");
+    GtkWidget *sep     = g_object_get_data(G_OBJECT(row), "gattn-row-branch-sep");
+    GtkWidget *actions = g_object_get_data(G_OBJECT(row), "gattn-row-actions");
+
+    GtkWidget *split = gtk_widget_get_ancestor(GTK_WIDGET(row), ADW_TYPE_NAVIGATION_SPLIT_VIEW);
+    int        level
+        = split ? GPOINTER_TO_INT(g_object_get_data(G_OBJECT(split), "gattn-compact-level")) : 0;
+
+    gboolean hover_or_focus
+        = actions
+          && (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "hover"))
+              || GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "focus")));
+
+    if (cwd)
+        gtk_widget_set_visible(cwd, level < 2);
+
+    /* Hide branch on hover so the icons overlay clean background; keep it hidden
+       when squeezed or when there's no branch. */
+    gboolean show_branch = !hover_or_focus && level < 2 && s && s->branch[0] != '\0';
+    if (br)
+        gtk_widget_set_visible(br, show_branch);
+    if (sep)
+        gtk_widget_set_visible(sep, show_branch);
+
+    if (actions) {
+        gtk_widget_set_opacity(actions, hover_or_focus ? 1.0 : 0.0);
+        gtk_widget_set_can_target(actions, hover_or_focus);
+    }
+}
+
 static void
 apply_compact_to_row(GtkListBoxRow *row, int level)
 {
-    /* Actions visibility is now driven by hover/focus (see on_row_pointer_*),
-       so only the cwd label reacts to compact level. */
-    GtkWidget *cwd = g_object_get_data(G_OBJECT(row), "gattn-row-cwd");
-    if (cwd)
-        gtk_widget_set_visible(cwd, level < 2);
+    (void)level; /* read from split inside apply_row_visibility */
+    apply_row_visibility(row);
 }
 
 /* -- hover-reveal for the row's action buttons --
@@ -1047,11 +1116,11 @@ apply_compact_to_row(GtkListBoxRow *row, int level)
    inside the row has focus (so keyboard users can Tab into them). */
 
 static void
-update_actions_visible(GtkWidget *actions)
+refresh_actions_from(GtkWidget *actions)
 {
-    gboolean hover = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "hover"));
-    gboolean focus = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "focus"));
-    gtk_widget_set_visible(actions, hover || focus);
+    GtkWidget *row = gtk_widget_get_ancestor(actions, GTK_TYPE_LIST_BOX_ROW);
+    if (row)
+        apply_row_visibility(GTK_LIST_BOX_ROW(row));
 }
 
 static void
@@ -1061,7 +1130,7 @@ on_row_pointer_enter(GtkEventControllerMotion *c, double x, double y, gpointer a
     (void)x;
     (void)y;
     g_object_set_data(G_OBJECT(actions), "hover", GINT_TO_POINTER(1));
-    update_actions_visible(actions);
+    refresh_actions_from(actions);
 }
 
 static void
@@ -1069,7 +1138,7 @@ on_row_pointer_leave(GtkEventControllerMotion *c, gpointer actions)
 {
     (void)c;
     g_object_set_data(G_OBJECT(actions), "hover", GINT_TO_POINTER(0));
-    update_actions_visible(actions);
+    refresh_actions_from(actions);
 }
 
 static void
@@ -1077,7 +1146,7 @@ on_row_focus_enter(GtkEventControllerFocus *c, gpointer actions)
 {
     (void)c;
     g_object_set_data(G_OBJECT(actions), "focus", GINT_TO_POINTER(1));
-    update_actions_visible(actions);
+    refresh_actions_from(actions);
 }
 
 static void
@@ -1085,7 +1154,21 @@ on_row_focus_leave(GtkEventControllerFocus *c, gpointer actions)
 {
     (void)c;
     g_object_set_data(G_OBJECT(actions), "focus", GINT_TO_POINTER(0));
-    update_actions_visible(actions);
+    refresh_actions_from(actions);
+}
+
+void
+sidebar_refresh_branch(Session *s)
+{
+    if (!s || !s->name_label)
+        return;
+    GtkWidget *row_w = gtk_widget_get_ancestor(s->name_label, GTK_TYPE_LIST_BOX_ROW);
+    if (!row_w)
+        return;
+    GtkWidget *split = gtk_widget_get_ancestor(row_w, ADW_TYPE_NAVIGATION_SPLIT_VIEW);
+    int        level
+        = split ? GPOINTER_TO_INT(g_object_get_data(G_OBJECT(split), "gattn-compact-level")) : 0;
+    apply_compact_to_row(GTK_LIST_BOX_ROW(row_w), level);
 }
 
 void
