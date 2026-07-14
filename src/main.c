@@ -683,12 +683,6 @@ on_compact_level_0_apply(gpointer d)
     sidebar_set_compact_level(app.split, 0);
 }
 static void
-on_compact_level_1_apply(gpointer d)
-{
-    (void)d;
-    sidebar_set_compact_level(app.split, 1);
-}
-static void
 on_compact_level_2_apply(gpointer d)
 {
     (void)d;
@@ -806,18 +800,13 @@ on_activate(AdwApplication *app_obj, gpointer data)
     gtk_window_set_icon_name(GTK_WINDOW(win), "org.mmxgn.gattn");
     adw_application_window_set_content(win, GTK_WIDGET(app.overlay));
 
-    /* Adaptive sidebar: hide inline row actions, then cwd, then collapse the split. */
-    AdwBreakpoint *bp_hide_actions
-        = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 900sp"));
-    g_signal_connect_swapped(bp_hide_actions, "apply", G_CALLBACK(on_compact_level_1_apply), NULL);
-    g_signal_connect_swapped(bp_hide_actions, "unapply", G_CALLBACK(on_compact_level_0_apply),
-                             NULL);
-    adw_application_window_add_breakpoint(win, bp_hide_actions);
-
+    /* Adaptive sidebar: hide cwd at narrow widths, then collapse the split.
+       Row action buttons are hover/focus-revealed (see sidebar.c), so no
+       breakpoint is needed for them. */
     AdwBreakpoint *bp_hide_cwd
         = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 700sp"));
     g_signal_connect_swapped(bp_hide_cwd, "apply", G_CALLBACK(on_compact_level_2_apply), NULL);
-    g_signal_connect_swapped(bp_hide_cwd, "unapply", G_CALLBACK(on_compact_level_1_apply), NULL);
+    g_signal_connect_swapped(bp_hide_cwd, "unapply", G_CALLBACK(on_compact_level_0_apply), NULL);
     adw_application_window_add_breakpoint(win, bp_hide_cwd);
 
     AdwBreakpoint *bp_collapse
