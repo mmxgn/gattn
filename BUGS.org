@@ -40,3 +40,6 @@ Added a "New Claude session" (starred) icon button to each recent-dir row in mak
 state_detector_start_child now starts poll_cwd (3s interval) alongside poll_proc_state
 
 * TODO M-h/l doesn't seem to work on Grid-mode
+
+* DONE Paste in a shell session cannot be done with the keyboard alone
+Added app.term-copy / app.term-paste actions bound to Ctrl+Shift+C / Ctrl+Shift+V; act on selected session's terminal via vte_terminal_copy_clipboard_format and vte_terminal_paste_clipboard.
