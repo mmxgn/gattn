@@ -115,3 +115,9 @@ meson setup build && ninja -C build && ./build/gattn
 ## Requirements
 
 GTK 4 · libadwaita · VTE (gtk4 variant) · GtkSourceView 5
+
+## Versioning
+
+gattn follows [SemVer](https://semver.org/). While pre-1.0.0, feature
+releases bump MINOR (`0.1.x -> 0.2.0`) and bugfix-only releases bump
+PATCH. From 1.0.0 onward: standard MAJOR/MINOR/PATCH.
