@@ -113,7 +113,11 @@ git_branch_for(const char *cwd)
 static void
 maybe_rename_to_branch(Session *s)
 {
-    if (s->user_renamed)
+    /* Only auto-rename top-level claude sessions. Shells and sub-agents keep
+       whatever name they were spawned with. */
+    if (s->user_renamed || s->parent_id != 0)
+        return;
+    if (g_ascii_strncasecmp(s->cmd, "claude", 6) != 0)
         return;
     char *branch = git_branch_for(s->cwd);
     if (!branch)
