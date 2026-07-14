@@ -20,12 +20,15 @@ struct Session {
     char         name[64];
     char         cmd[128];
     char         cwd[256];
+    char         branch[64]; /* current git branch of cwd; empty if not in a repo */
     SessionState state;
-    GtkWidget   *terminal;   /* VteTerminal */
-    GtkWidget   *dot;        /* sidebar state dot */
-    GtkWidget   *grid_frame; /* grid-view tile frame, NULL when not in grid */
-    GtkWidget   *name_label; /* sidebar name label */
-    GtkWidget   *cwd_label;  /* sidebar cwd label */
+    GtkWidget   *terminal;     /* VteTerminal */
+    GtkWidget   *dot;          /* sidebar state dot */
+    GtkWidget   *grid_frame;   /* grid-view tile frame, NULL when not in grid */
+    GtkWidget   *name_label;   /* sidebar name label */
+    GtkWidget   *cwd_label;    /* sidebar cwd label */
+    GtkWidget   *branch_label; /* sidebar branch label (right of name, dim) */
+    GtkWidget   *branch_sep;   /* the middle-dot separator; hidden when branch is empty */
     int          pid;
     guint        poll_id;
     guint        idle_timer_id;

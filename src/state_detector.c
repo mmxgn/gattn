@@ -1,4 +1,5 @@
 #include "state_detector.h"
+#include "ui/sidebar.h"
 #include <glib/gfileutils.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,22 +111,18 @@ git_branch_for(const char *cwd)
     return NULL;
 }
 
+/* Cache the branch name on the session and mirror it to the sidebar label.
+   Visibility (empty branch + compact level) is applied by the sidebar. */
 static void
-maybe_rename_to_branch(Session *s)
+refresh_branch(Session *s)
 {
-    /* Only auto-rename top-level claude sessions. Shells and sub-agents keep
-       whatever name they were spawned with. */
-    if (s->user_renamed || s->parent_id != 0)
-        return;
-    if (g_ascii_strncasecmp(s->cmd, "claude", 6) != 0)
-        return;
-    char *branch = git_branch_for(s->cwd);
-    if (!branch)
-        return;
-    if (strcmp(branch, s->name) != 0) {
-        g_strlcpy(s->name, branch, sizeof(s->name));
-        if (s->name_label)
-            gtk_label_set_text(GTK_LABEL(s->name_label), s->name);
+    char       *branch = git_branch_for(s->cwd);
+    const char *b      = branch ? branch : "";
+    if (strcmp(b, s->branch) != 0) {
+        g_strlcpy(s->branch, b, sizeof(s->branch));
+        if (s->branch_label)
+            gtk_label_set_text(GTK_LABEL(s->branch_label), s->branch);
+        sidebar_refresh_branch(s);
         session_refresh_a11y(s);
     }
     g_free(branch);
@@ -168,7 +165,7 @@ poll_cwd(gpointer data)
     }
     g_free(link);
 
-    maybe_rename_to_branch(s);
+    refresh_branch(s);
     return G_SOURCE_CONTINUE;
 }
 

@@ -11,5 +11,7 @@ void       sidebar_remove_session(GtkWidget *split, int id);
 void       sidebar_show_diff(Session *s, GtkWidget *parent_widget);
 void       sidebar_rename_session(Session *s, GtkWidget *parent_widget);
 void       sidebar_toggle_search(GtkWidget *split);
+/* Re-apply branch/cwd visibility for `s`'s row after `s->branch` was updated. */
+void sidebar_refresh_branch(Session *s);
 /* 0 = wide (all visible); 1 = hide inline action buttons; 2 = also hide cwd label. */
 void sidebar_set_compact_level(GtkWidget *split, int level);

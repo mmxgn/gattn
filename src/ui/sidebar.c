@@ -919,8 +919,27 @@ make_row(Session *s)
     } else {
         labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         gtk_widget_set_hexpand(labels, TRUE);
-        gtk_box_append(GTK_BOX(labels), name_lbl);
 
+        /* Row 1: [name] · [branch]  -- name ellipsizes first, branch stays intact. */
+        GtkWidget *name_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        gtk_box_append(GTK_BOX(name_row), name_lbl);
+
+        GtkWidget *branch_sep = gtk_label_new("·");
+        gtk_widget_add_css_class(branch_sep, "dim-label");
+        gtk_widget_set_visible(branch_sep, s->branch[0] != '\0');
+        s->branch_sep = branch_sep;
+        gtk_box_append(GTK_BOX(name_row), branch_sep);
+
+        GtkWidget *branch_lbl = gtk_label_new(s->branch);
+        gtk_label_set_xalign(GTK_LABEL(branch_lbl), 0.0f);
+        gtk_widget_add_css_class(branch_lbl, "dim-label");
+        gtk_widget_set_visible(branch_lbl, s->branch[0] != '\0');
+        s->branch_label = branch_lbl;
+        gtk_box_append(GTK_BOX(name_row), branch_lbl);
+
+        gtk_box_append(GTK_BOX(labels), name_row);
+
+        /* Row 2: cwd (dim). */
         char cwd_display[256] = "~";
         if (s->cwd[0]) {
             const char *base = strrchr(s->cwd, '/');
@@ -963,6 +982,8 @@ make_row(Session *s)
     g_object_set_data(G_OBJECT(row), "gattn-session", s);
     g_object_set_data(G_OBJECT(row), "gattn-row-actions", actions);
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
+    g_object_set_data(G_OBJECT(row), "gattn-row-branch-sep", s->branch_sep);
+    g_object_set_data(G_OBJECT(row), "gattn-row-branch", s->branch_label);
     session_refresh_a11y(s);
 
     /* Hover / focus reveal for the action buttons: hidden by default. */
@@ -1036,10 +1057,19 @@ static void
 apply_compact_to_row(GtkListBoxRow *row, int level)
 {
     /* Actions visibility is now driven by hover/focus (see on_row_pointer_*),
-       so only the cwd label reacts to compact level. */
+       so only the cwd + branch labels react to compact level. */
+    Session   *s   = g_object_get_data(G_OBJECT(row), "gattn-session");
     GtkWidget *cwd = g_object_get_data(G_OBJECT(row), "gattn-row-cwd");
+    GtkWidget *br  = g_object_get_data(G_OBJECT(row), "gattn-row-branch");
+    GtkWidget *sep = g_object_get_data(G_OBJECT(row), "gattn-row-branch-sep");
     if (cwd)
         gtk_widget_set_visible(cwd, level < 2);
+    /* Branch pair only visible when a branch exists AND we're not squeezed. */
+    gboolean show_branch = level < 2 && s && s->branch[0] != '\0';
+    if (br)
+        gtk_widget_set_visible(br, show_branch);
+    if (sep)
+        gtk_widget_set_visible(sep, show_branch);
 }
 
 /* -- hover-reveal for the row's action buttons --
@@ -1086,6 +1116,20 @@ on_row_focus_leave(GtkEventControllerFocus *c, gpointer actions)
     (void)c;
     g_object_set_data(G_OBJECT(actions), "focus", GINT_TO_POINTER(0));
     update_actions_visible(actions);
+}
+
+void
+sidebar_refresh_branch(Session *s)
+{
+    if (!s || !s->name_label)
+        return;
+    GtkWidget *row_w = gtk_widget_get_ancestor(s->name_label, GTK_TYPE_LIST_BOX_ROW);
+    if (!row_w)
+        return;
+    GtkWidget *split = gtk_widget_get_ancestor(row_w, ADW_TYPE_NAVIGATION_SPLIT_VIEW);
+    int        level
+        = split ? GPOINTER_TO_INT(g_object_get_data(G_OBJECT(split), "gattn-compact-level")) : 0;
+    apply_compact_to_row(GTK_LIST_BOX_ROW(row_w), level);
 }
 
 void

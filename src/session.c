@@ -105,8 +105,12 @@ session_refresh_a11y(Session *s)
     if (row) {
         const char *base     = s->cwd[0] ? strrchr(s->cwd, '/') : NULL;
         const char *cwd_base = (base && base[1]) ? base + 1 : (s->cwd[0] ? s->cwd : "~");
-        char        buf[320];
-        g_snprintf(buf, sizeof(buf), "%s, %s, %s", s->name, state_name(s->state), cwd_base);
+        char        buf[384];
+        if (s->branch[0])
+            g_snprintf(buf, sizeof(buf), "%s, %s, %s, on branch %s", s->name, state_name(s->state),
+                       cwd_base, s->branch);
+        else
+            g_snprintf(buf, sizeof(buf), "%s, %s, %s", s->name, state_name(s->state), cwd_base);
         gtk_accessible_update_property(GTK_ACCESSIBLE(row), GTK_ACCESSIBLE_PROPERTY_LABEL, buf, -1);
     }
 }
