@@ -698,6 +698,28 @@ on_toggle_search(GSimpleAction *a, GVariant *p, gpointer d)
     sidebar_toggle_search(app.split);
 }
 
+static void
+on_term_copy(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    Session *s = selected_session();
+    if (s && s->terminal)
+        vte_terminal_copy_clipboard_format(VTE_TERMINAL(s->terminal), VTE_FORMAT_TEXT);
+}
+
+static void
+on_term_paste(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a;
+    (void)p;
+    (void)d;
+    Session *s = selected_session();
+    if (s && s->terminal)
+        vte_terminal_paste_clipboard(VTE_TERMINAL(s->terminal));
+}
+
 /* -- startup -- */
 
 static void
@@ -762,6 +784,8 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "about", G_CALLBACK(on_about), NULL);
     register_action(map, "rename-session", G_CALLBACK(on_rename_session), NULL);
     register_action(map, "toggle-search", G_CALLBACK(on_toggle_search), NULL);
+    register_action(map, "term-copy", G_CALLBACK(on_term_copy), NULL);
+    register_action(map, "term-paste", G_CALLBACK(on_term_paste), NULL);
     register_action(map, "zoom-in", G_CALLBACK(on_zoom_in), NULL);
     register_action(map, "zoom-out", G_CALLBACK(on_zoom_out), NULL);
     register_action(map, "zoom-reset", G_CALLBACK(on_zoom_reset), NULL);
@@ -868,6 +892,8 @@ main(int argc, char *argv[])
         { "app.zoom-out", "<Control>minus" },
         { "app.zoom-reset", "<Control>0" },
         { "app.fullscreen", "F11" },
+        { "app.term-copy", "<Control><Shift>c" },
+        { "app.term-paste", "<Control><Shift>v" },
     };
     for (size_t i = 0; i < sizeof(bindings) / sizeof(*bindings); i++) {
         const char *accels[] = { bindings[i].accel, NULL };

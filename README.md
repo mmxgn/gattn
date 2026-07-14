@@ -47,6 +47,7 @@ Everything is reachable without a mouse:
 | `Ctrl+G` | Toggle grid view |
 | `Ctrl+Shift+D` | Show diff |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset terminal font |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy selection / paste into the terminal |
 | `F11` | Fullscreen |
 
 **In the diff dialog:**
