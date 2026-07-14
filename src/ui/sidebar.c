@@ -993,6 +993,7 @@ make_row(Session *s)
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
     g_object_set_data(G_OBJECT(row), "gattn-row-branch-sep", s->branch_sep);
     g_object_set_data(G_OBJECT(row), "gattn-row-branch", s->branch_label);
+    g_object_set_data(G_OBJECT(row), "gattn-row-labels", labels);
     session_refresh_a11y(s);
 
     /* Hover / focus reveal for the action buttons: hidden by default. */
@@ -1102,6 +1103,12 @@ apply_row_visibility(GtkListBoxRow *row)
         gtk_widget_set_opacity(actions, hover_or_focus ? 1.0 : 0.0);
         gtk_widget_set_can_target(actions, hover_or_focus);
     }
+
+    /* Push the labels' trailing edge in when actions are revealed so the name
+       ellipsizes before it slides under the icons. 4 icons ~32 px each + margin. */
+    GtkWidget *labels = g_object_get_data(G_OBJECT(row), "gattn-row-labels");
+    if (labels)
+        gtk_widget_set_margin_end(labels, hover_or_focus ? 136 : 0);
 }
 
 static void
