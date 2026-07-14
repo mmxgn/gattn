@@ -19,6 +19,12 @@ typedef struct {
 
 void sidebar_rename_session(Session *s, GtkWidget *parent_widget);
 
+/* Forward decls for row action hover/focus reveal handlers (defined after make_row). */
+static void on_row_pointer_enter(GtkEventControllerMotion *c, double x, double y, gpointer actions);
+static void on_row_pointer_leave(GtkEventControllerMotion *c, gpointer actions);
+static void on_row_focus_enter(GtkEventControllerFocus *c, gpointer actions);
+static void on_row_focus_leave(GtkEventControllerFocus *c, gpointer actions);
+
 /* -- diff dialog -- */
 
 /* Run `git <args>` in cwd, return stdout (caller frees) or NULL. */
@@ -959,6 +965,17 @@ make_row(Session *s)
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
     session_refresh_a11y(s);
 
+    /* Hover / focus reveal for the action buttons: hidden by default. */
+    gtk_widget_set_visible(actions, FALSE);
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "enter", G_CALLBACK(on_row_pointer_enter), actions);
+    g_signal_connect(motion, "leave", G_CALLBACK(on_row_pointer_leave), actions);
+    gtk_widget_add_controller(row, motion);
+    GtkEventController *focus_ctl = gtk_event_controller_focus_new();
+    g_signal_connect(focus_ctl, "enter", G_CALLBACK(on_row_focus_enter), actions);
+    g_signal_connect(focus_ctl, "leave", G_CALLBACK(on_row_focus_leave), actions);
+    gtk_widget_add_controller(row, focus_ctl);
+
     GtkGesture *rc = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(rc), GDK_BUTTON_SECONDARY);
     g_signal_connect(rc, "pressed", G_CALLBACK(on_right_click), s);
@@ -1018,12 +1035,57 @@ sidebar_toggle_search(GtkWidget *split)
 static void
 apply_compact_to_row(GtkListBoxRow *row, int level)
 {
-    GtkWidget *actions = g_object_get_data(G_OBJECT(row), "gattn-row-actions");
-    GtkWidget *cwd     = g_object_get_data(G_OBJECT(row), "gattn-row-cwd");
-    if (actions)
-        gtk_widget_set_visible(actions, level < 1);
+    /* Actions visibility is now driven by hover/focus (see on_row_pointer_*),
+       so only the cwd label reacts to compact level. */
+    GtkWidget *cwd = g_object_get_data(G_OBJECT(row), "gattn-row-cwd");
     if (cwd)
         gtk_widget_set_visible(cwd, level < 2);
+}
+
+/* -- hover-reveal for the row's action buttons --
+   Hidden by default; shown while the pointer is over the row OR any widget
+   inside the row has focus (so keyboard users can Tab into them). */
+
+static void
+update_actions_visible(GtkWidget *actions)
+{
+    gboolean hover = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "hover"));
+    gboolean focus = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(actions), "focus"));
+    gtk_widget_set_visible(actions, hover || focus);
+}
+
+static void
+on_row_pointer_enter(GtkEventControllerMotion *c, double x, double y, gpointer actions)
+{
+    (void)c;
+    (void)x;
+    (void)y;
+    g_object_set_data(G_OBJECT(actions), "hover", GINT_TO_POINTER(1));
+    update_actions_visible(actions);
+}
+
+static void
+on_row_pointer_leave(GtkEventControllerMotion *c, gpointer actions)
+{
+    (void)c;
+    g_object_set_data(G_OBJECT(actions), "hover", GINT_TO_POINTER(0));
+    update_actions_visible(actions);
+}
+
+static void
+on_row_focus_enter(GtkEventControllerFocus *c, gpointer actions)
+{
+    (void)c;
+    g_object_set_data(G_OBJECT(actions), "focus", GINT_TO_POINTER(1));
+    update_actions_visible(actions);
+}
+
+static void
+on_row_focus_leave(GtkEventControllerFocus *c, gpointer actions)
+{
+    (void)c;
+    g_object_set_data(G_OBJECT(actions), "focus", GINT_TO_POINTER(0));
+    update_actions_visible(actions);
 }
 
 void
