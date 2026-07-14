@@ -26,10 +26,14 @@ sessions_load(SavedSession *out, int max)
     for (int i = 0; lines[i] && n < max; i++) {
         if (!lines[i][0])
             continue;
-        char **parts = g_strsplit(lines[i], "|", 2);
+        /* Format: cmd|dir[|name]. Older files omit the name field. */
+        char **parts = g_strsplit(lines[i], "|", 3);
         if (parts[0] && parts[1]) {
             g_strlcpy(out[n].cmd, parts[0], sizeof(out[n].cmd));
             g_strlcpy(out[n].dir, parts[1], sizeof(out[n].dir));
+            out[n].name[0] = '\0';
+            if (parts[2])
+                g_strlcpy(out[n].name, parts[2], sizeof(out[n].name));
             n++;
         }
         g_strfreev(parts);
@@ -51,7 +55,7 @@ sessions_save(SessionList *list)
         Session *s = list->items[i];
         if (!s || s->parent_id != 0 || !s->cwd[0])
             continue;
-        g_string_append_printf(buf, "%s|%s\n", s->cmd, s->cwd);
+        g_string_append_printf(buf, "%s|%s|%s\n", s->cmd, s->cwd, s->name);
     }
     g_file_set_contents(path, buf->str, -1, NULL);
     g_string_free(buf, TRUE);

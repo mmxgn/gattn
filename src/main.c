@@ -389,10 +389,13 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
 /* -- session creation -- */
 
 static void
-add_session(GtkWidget *split, const char *cmd, const char *working_dir)
+add_session_named(GtkWidget *split, const char *cmd, const char *working_dir,
+                  const char *preserved_name)
 {
     char name[64] = "shell";
-    if (cmd && *cmd) {
+    if (preserved_name && *preserved_name) {
+        g_strlcpy(name, preserved_name, sizeof(name));
+    } else if (cmd && *cmd) {
         char tmp[256];
         g_strlcpy(tmp, cmd, sizeof(tmp));
         char *space = strchr(tmp, ' ');
@@ -422,6 +425,12 @@ add_session(GtkWidget *split, const char *cmd, const char *working_dir)
     notify_watch(s, app.overlay, app.gapp);
     sidebar_add_session(split, s);
     sessions_save(&sessions);
+}
+
+static inline void
+add_session(GtkWidget *split, const char *cmd, const char *working_dir)
+{
+    add_session_named(split, cmd, working_dir, NULL);
 }
 
 static void
@@ -865,8 +874,9 @@ on_activate(AdwApplication *app_obj, gpointer data)
     int          nsaved = sessions_load(saved, 32);
     if (nsaved > 0) {
         for (int i = 0; i < nsaved; i++)
-            add_session(app.split, saved[i].cmd[0] ? saved[i].cmd : NULL,
-                        saved[i].dir[0] ? saved[i].dir : NULL);
+            add_session_named(app.split, saved[i].cmd[0] ? saved[i].cmd : NULL,
+                              saved[i].dir[0] ? saved[i].dir : NULL,
+                              saved[i].name[0] ? saved[i].name : NULL);
     } else {
         session_picker_show(GTK_WIDGET(win), on_session_picked, app.split, NULL);
     }

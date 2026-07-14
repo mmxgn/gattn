@@ -23,6 +23,45 @@ session_list_init(SessionList *list)
     memset(list, 0, sizeof(*list));
 }
 
+/* Anything the auto-namer treats as "no real name given". Sub-agent /proc/comm
+   names for common interpreters land here too. */
+static const char *const GENERIC_NAMES[]
+    = { "",     "shell", "claude", "agent",  "bash",   "sh",      "zsh", "fish",
+        "dash", "ksh",   "node",   "nodejs", "python", "python3", NULL };
+
+static const char *const ADJECTIVES[]
+    = { "atomic", "brave",  "calm",   "clever",  "cosmic", "curious", "daring",  "eager",
+        "fuzzy",  "gentle", "giddy",  "glowing", "happy",  "jolly",   "jumpy",   "keen",
+        "lively", "lucky",  "mellow", "merry",   "nimble", "quirky",  "radiant", "silly",
+        "snappy", "sunny",  "swift",  "tiny",    "vivid",  "witty",   "zesty" };
+
+static const char *const ANIMALS[]
+    = { "badger",   "cat",      "crab",    "dolphin", "eagle",   "ferret", "fox",   "gecko",
+        "hedgehog", "hippo",    "koala",   "lynx",    "mole",    "moose",  "newt",  "otter",
+        "owl",      "panda",    "penguin", "quokka",  "raccoon", "seal",   "shark", "sloth",
+        "sparrow",  "squirrel", "tiger",   "turtle",  "walrus",  "wombat", "yak" };
+
+static gboolean
+is_generic_name(const char *name)
+{
+    if (!name)
+        return TRUE;
+    for (int i = 0; GENERIC_NAMES[i]; i++)
+        if (g_ascii_strcasecmp(name, GENERIC_NAMES[i]) == 0)
+            return TRUE;
+    return FALSE;
+}
+
+/* Whimsical name based on the session's spawn order, e.g. atomic-hedgehog-3.
+   The suffix ensures uniqueness even when adj/animal collide. */
+static void
+auto_name(char *out, size_t n, int seq)
+{
+    const char *adj  = ADJECTIVES[g_random_int_range(0, G_N_ELEMENTS(ADJECTIVES))];
+    const char *anim = ANIMALS[g_random_int_range(0, G_N_ELEMENTS(ANIMALS))];
+    g_snprintf(out, n, "%s-%s-%d", adj, anim, seq);
+}
+
 Session *
 session_create(SessionList *list, const char *name)
 {
@@ -37,8 +76,12 @@ session_create(SessionList *list, const char *name)
 
     Session *s = g_new0(Session, 1);
     s->id      = ++list->next_id;
-    strncpy(s->name, name, sizeof(s->name) - 1);
-    s->name[sizeof(s->name) - 1] = '\0';
+    if (is_generic_name(name)) {
+        auto_name(s->name, sizeof(s->name), s->id);
+    } else {
+        strncpy(s->name, name, sizeof(s->name) - 1);
+        s->name[sizeof(s->name) - 1] = '\0';
+    }
 
     list->items[slot] = s;
     if (slot + 1 > list->count)
