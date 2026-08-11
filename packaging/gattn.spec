@@ -1,5 +1,5 @@
 Name:           gattn
-Version:        0.1.6
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Attention hub for GNOME
 
