@@ -26,14 +26,17 @@ sessions_load(SavedSession *out, int max)
     for (int i = 0; lines[i] && n < max; i++) {
         if (!lines[i][0])
             continue;
-        /* Format: cmd|dir[|name]. Older files omit the name field. */
-        char **parts = g_strsplit(lines[i], "|", 3);
+        /* Format: cmd|dir[|name[|fork_parent_dir]]. Older files omit trailing fields. */
+        char **parts = g_strsplit(lines[i], "|", 4);
         if (parts[0] && parts[1]) {
             g_strlcpy(out[n].cmd, parts[0], sizeof(out[n].cmd));
             g_strlcpy(out[n].dir, parts[1], sizeof(out[n].dir));
-            out[n].name[0] = '\0';
+            out[n].name[0]            = '\0';
+            out[n].fork_parent_dir[0] = '\0';
             if (parts[2])
                 g_strlcpy(out[n].name, parts[2], sizeof(out[n].name));
+            if (parts[3])
+                g_strlcpy(out[n].fork_parent_dir, parts[3], sizeof(out[n].fork_parent_dir));
             n++;
         }
         g_strfreev(parts);
@@ -53,9 +56,21 @@ sessions_save(SessionList *list)
     GString *buf = g_string_new(NULL);
     for (int i = 0; i < list->count; i++) {
         Session *s = list->items[i];
-        if (!s || s->parent_id != 0 || !s->cwd[0])
+        if (!s || s->is_robot || !s->cwd[0])
             continue;
-        g_string_append_printf(buf, "%s|%s|%s\n", s->cmd, s->cwd, s->name);
+        if (s->is_fork) {
+            /* Find parent's cwd to save as fork_parent_dir */
+            const char *parent_cwd = "";
+            for (int j = 0; j < list->count; j++) {
+                if (list->items[j] && list->items[j]->id == s->fork_parent_id) {
+                    parent_cwd = list->items[j]->cwd;
+                    break;
+                }
+            }
+            g_string_append_printf(buf, "%s|%s|%s|%s\n", s->cmd, s->cwd, s->name, parent_cwd);
+        } else {
+            g_string_append_printf(buf, "%s|%s|%s\n", s->cmd, s->cwd, s->name);
+        }
     }
     g_file_set_contents(path, buf->str, -1, NULL);
     g_string_free(buf, TRUE);

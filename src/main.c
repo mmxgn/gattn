@@ -11,6 +11,7 @@
 #include "ui/sidebar.h"
 #include <adwaita.h>
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 #include <signal.h>
 #include <string.h>
 #include <vte/vte.h>
@@ -388,9 +389,10 @@ on_session_cleanup(GtkWidget *term, int status, gpointer data)
 
 /* -- session creation -- */
 
-static void
-add_session_named(GtkWidget *split, const char *cmd, const char *working_dir,
-                  const char *preserved_name)
+/* Create, spawn, and wire up a session without adding it to the sidebar.
+   Caller sets is_fork / fork_parent_id before calling sidebar_add_session. */
+static Session *
+spawn_session(const char *cmd, const char *working_dir, const char *preserved_name)
 {
     char name[64] = "shell";
     if (preserved_name && *preserved_name) {
@@ -406,25 +408,94 @@ add_session_named(GtkWidget *split, const char *cmd, const char *working_dir,
     }
     Session *s = session_create(&sessions, name);
     if (!s)
-        return;
+        return NULL;
     s->on_child_spawned      = on_child_spawned;
     s->on_child_spawned_data = NULL;
     s->on_child_exited       = on_child_exited;
     s->on_child_exited_data  = NULL;
     if (cmd && *cmd)
         g_strlcpy(s->cmd, cmd, sizeof(s->cmd));
-    if (working_dir) {
+    if (working_dir)
         g_strlcpy(s->cwd, working_dir, sizeof(s->cwd));
-        recents_add(working_dir);
-    }
     session_spawn(s, (cmd && *cmd) ? cmd : NULL, working_dir);
     GattnPrefs prefs = prefs_load();
     apply_prefs_to_terminal(VTE_TERMINAL(s->terminal), &prefs);
     g_signal_connect(s->terminal, "child-exited", G_CALLBACK(on_session_cleanup), s);
     state_detector_start(s);
     notify_watch(s, app.overlay, app.gapp);
+    return s;
+}
+
+static void
+add_session_named(GtkWidget *split, const char *cmd, const char *working_dir,
+                  const char *preserved_name)
+{
+    Session *s = spawn_session(cmd, working_dir, preserved_name);
+    if (!s)
+        return;
+    if (working_dir)
+        recents_add(working_dir);
     sidebar_add_session(split, s);
     sessions_save(&sessions);
+}
+
+/* -- fork session -- */
+
+static void
+add_fork_session(GtkWidget *split, Session *parent)
+{
+    /* Find the most-recently-modified .jsonl in the parent's claude project dir.
+       The active session is writing to it, so it will always be the freshest. */
+    char cmd[256] = "claude";
+
+    char *encoded = g_strdup(parent->cwd);
+    for (char *c = encoded; *c; c++)
+        if (*c == '/') *c = '-';
+    char *proj_dir = g_strdup_printf("%s/.claude/projects/%s",
+                                     g_get_home_dir(), encoded);
+    g_free(encoded);
+
+    GDir *dir = g_dir_open(proj_dir, 0, NULL);
+    if (dir) {
+        const char *entry;
+        char        best[64] = "";
+        time_t      best_mt  = 0;
+        while ((entry = g_dir_read_name(dir))) {
+            if (!g_str_has_suffix(entry, ".jsonl"))
+                continue;
+            char    *full = g_build_filename(proj_dir, entry, NULL);
+            GStatBuf st;
+            if (g_stat(full, &st) == 0 && st.st_mtime > best_mt) {
+                best_mt = st.st_mtime;
+                g_strlcpy(best, entry, sizeof(best));
+            }
+            g_free(full);
+        }
+        g_dir_close(dir);
+        if (best[0]) {
+            best[strlen(best) - 6] = '\0'; /* strip .jsonl */
+            g_snprintf(cmd, sizeof(cmd), "claude --resume %s", best);
+        }
+    }
+    g_free(proj_dir);
+
+    Session *s = spawn_session(cmd, parent->cwd, NULL);
+    if (!s)
+        return;
+    s->is_fork        = TRUE;
+    s->fork_parent_id = parent->id;
+    sidebar_add_session(split, s);
+    sessions_save(&sessions);
+}
+
+static void
+on_fork_session(GSimpleAction *a, GVariant *p, gpointer d)
+{
+    (void)a; (void)p; (void)d;
+    Session *parent = selected_session();
+    if (!parent || !parent->cwd[0])
+        return;
+    add_fork_session(app.split, parent);
 }
 
 static inline void
@@ -434,9 +505,57 @@ add_session(GtkWidget *split, const char *cmd, const char *working_dir)
 }
 
 static void
+on_fork_requested(Session *parent, GtkWidget *split, gpointer data)
+{
+    (void)split;
+    (void)data;
+    /* Re-use the action handler so keyboard shortcut and button share the same path.
+       We temporarily override selected_session by relying on the fact that the row
+       button sits on the parent's row which is selected on hover-reveal. If the
+       session is not selected, select it now so selected_session() returns it. */
+    GtkListBox *lb = get_lb();
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(lb, i);
+        if (!row)
+            break;
+        if (g_object_get_data(G_OBJECT(row), "gattn-session") == parent) {
+            gtk_list_box_select_row(lb, row);
+            break;
+        }
+    }
+    on_fork_session(NULL, NULL, NULL);
+}
+
+static void
 on_session_picked(const char *cmd, const char *dir, gpointer data)
 {
     add_session((GtkWidget *)data, cmd, dir);
+
+    /* Restore any saved fork sessions that belong to this directory */
+    SavedSession saved[32];
+    int          nsaved = sessions_load(saved, 32);
+    for (int i = 0; i < nsaved; i++) {
+        if (!saved[i].fork_parent_dir[0] || strcmp(saved[i].fork_parent_dir, dir) != 0)
+            continue;
+        /* Find the parent session we just created (matching cwd) */
+        Session *parent = NULL;
+        for (int j = 0; j < sessions.count; j++) {
+            Session *s = sessions.items[j];
+            if (s && !s->is_fork && !s->is_robot && strcmp(s->cwd, dir) == 0) {
+                parent = s;
+                break;
+            }
+        }
+        if (!parent)
+            continue;
+        Session *fork_s = spawn_session(saved[i].cmd, saved[i].dir,
+                                        saved[i].name[0] ? saved[i].name : NULL);
+        if (!fork_s)
+            continue;
+        fork_s->is_fork        = TRUE;
+        fork_s->fork_parent_id = parent->id;
+        sidebar_add_session((GtkWidget *)data, fork_s);
+    }
 }
 
 static void
@@ -773,6 +892,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     app.overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
 
     app.split = sidebar_new(&sessions, on_new_session, NULL);
+    sidebar_set_fork_fn(app.split, on_fork_requested, NULL);
     sidebar_set_shell_here(app.split, on_shell_here, NULL);
     app.zoom_label = GTK_LABEL(g_object_get_data(G_OBJECT(app.split), "gattn-zoom-label"));
 
@@ -798,6 +918,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     register_action(map, "jump-last", G_CALLBACK(on_jump_last), NULL);
     register_action(map, "raise", G_CALLBACK(on_raise), app_obj);
     register_action(map, "show-diff", G_CALLBACK(on_show_diff), NULL);
+    register_action(map, "fork-session", G_CALLBACK(on_fork_session), NULL);
     register_action(map, "open-folder", G_CALLBACK(on_open_folder), NULL);
     register_action(map, "open-shell-here", G_CALLBACK(on_open_shell_here), NULL);
     register_action(map, "resume-claude", G_CALLBACK(on_resume_claude), NULL);
@@ -873,10 +994,35 @@ on_activate(AdwApplication *app_obj, gpointer data)
     SavedSession saved[32];
     int          nsaved = sessions_load(saved, 32);
     if (nsaved > 0) {
-        for (int i = 0; i < nsaved; i++)
-            add_session_named(app.split, saved[i].cmd[0] ? saved[i].cmd : NULL,
-                              saved[i].dir[0] ? saved[i].dir : NULL,
-                              saved[i].name[0] ? saved[i].name : NULL);
+        /* Pass 1: spawn non-fork sessions */
+        for (int i = 0; i < nsaved; i++) {
+            if (!saved[i].fork_parent_dir[0])
+                add_session_named(app.split, saved[i].cmd[0] ? saved[i].cmd : NULL,
+                                  saved[i].dir[0] ? saved[i].dir : NULL,
+                                  saved[i].name[0] ? saved[i].name : NULL);
+        }
+        /* Pass 2: spawn fork sessions, linking each to its parent by cwd */
+        for (int i = 0; i < nsaved; i++) {
+            if (!saved[i].fork_parent_dir[0])
+                continue;
+            Session *parent = NULL;
+            for (int j = 0; j < sessions.count; j++) {
+                Session *s = sessions.items[j];
+                if (s && !s->is_fork && !s->is_robot
+                    && strcmp(s->cwd, saved[i].fork_parent_dir) == 0) {
+                    parent = s;
+                    break;
+                }
+            }
+            Session *fork_s = spawn_session(saved[i].cmd[0] ? saved[i].cmd : NULL,
+                                            saved[i].dir[0] ? saved[i].dir : NULL,
+                                            saved[i].name[0] ? saved[i].name : NULL);
+            if (!fork_s)
+                continue;
+            fork_s->is_fork        = TRUE;
+            fork_s->fork_parent_id = parent ? parent->id : 0;
+            sidebar_add_session(app.split, fork_s);
+        }
     } else {
         session_picker_show(GTK_WIDGET(win), on_session_picked, app.split, NULL);
     }
@@ -906,6 +1052,7 @@ main(int argc, char *argv[])
         { "app.jump-last", "<Control>Next" },
         { "app.exit-grid", "<Control>g" },
         { "app.show-diff", "<Control><Shift>d" },
+        { "app.fork-session", "<Control><Shift>k" },
         { "app.open-folder", "<Control><Shift>o" },
         { "app.open-shell-here", "<Control><Shift>t" },
         { "app.resume-claude", "<Control><Shift>r" },
