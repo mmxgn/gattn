@@ -3,7 +3,9 @@
 
 typedef void (*SidebarNewFn)(GtkWidget *split, gpointer data);
 typedef void (*SidebarShellHereFn)(GtkWidget *split, const char *cwd, gpointer data);
+typedef void (*SidebarForkFn)(Session *parent, GtkWidget *split, gpointer data);
 void sidebar_set_shell_here(GtkWidget *split, SidebarShellHereFn fn, gpointer data);
+void sidebar_set_fork_fn(GtkWidget *split, SidebarForkFn fn, gpointer data);
 
 GtkWidget *sidebar_new(SessionList *sessions, SidebarNewFn on_new, gpointer on_new_data);
 void       sidebar_add_session(GtkWidget *split, Session *s);

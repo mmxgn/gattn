@@ -36,6 +36,8 @@ struct Session {
     guint        child_poll_id;
     gint64       last_user_input_us; /* suppress contents-changed while user types */
     gboolean     user_renamed;       /* TRUE once user explicitly renames; disables auto-rename */
+    gboolean     is_fork;            /* TRUE for sessions created via the Fork button */
+    int          fork_parent_id;     /* id of the session this was forked from; 0 if not a fork */
     int          seen_child_pids[32];
     int          seen_child_count;
     SessionStateChangedFn on_state_changed;

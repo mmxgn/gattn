@@ -805,6 +805,20 @@ sidebar_set_shell_here(GtkWidget *split, SidebarShellHereFn fn, gpointer data)
     g_object_set_data_full(G_OBJECT(split), "gattn-shell-here-ctx", ctx, g_free);
 }
 
+typedef struct {
+    SidebarForkFn fn;
+    gpointer      data;
+} ForkCtx;
+
+void
+sidebar_set_fork_fn(GtkWidget *split, SidebarForkFn fn, gpointer data)
+{
+    ForkCtx *ctx = g_new(ForkCtx, 1);
+    ctx->fn      = fn;
+    ctx->data    = data;
+    g_object_set_data_full(G_OBJECT(split), "gattn-fork-ctx", ctx, g_free);
+}
+
 static void
 on_terminal_btn_clicked(GtkButton *btn, gpointer data)
 {
@@ -819,6 +833,16 @@ static void
 on_diff_btn_clicked(GtkButton *btn, gpointer data)
 {
     sidebar_show_diff((Session *)data, GTK_WIDGET(btn));
+}
+
+static void
+on_fork_btn_clicked(GtkButton *btn, gpointer data)
+{
+    Session   *s     = data;
+    GtkWidget *split = gtk_widget_get_ancestor(GTK_WIDGET(btn), ADW_TYPE_NAVIGATION_SPLIT_VIEW);
+    ForkCtx   *ctx   = split ? g_object_get_data(G_OBJECT(split), "gattn-fork-ctx") : NULL;
+    if (ctx && ctx->fn)
+        ctx->fn(s, split, ctx->data);
 }
 
 static void
@@ -882,7 +906,7 @@ static GtkWidget *
 make_row(Session *s)
 {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_widget_set_margin_start(box, s->is_robot ? 24 : 8);
+    gtk_widget_set_margin_start(box, (s->is_robot || s->is_fork) ? 24 : 8);
     gtk_widget_set_margin_end(box, 4);
     gtk_widget_set_margin_top(box, 4);
     gtk_widget_set_margin_bottom(box, 4);
@@ -966,8 +990,8 @@ make_row(Session *s)
         gtk_box_append(GTK_BOX(actions),
                        make_icon_btn("utilities-terminal-symbolic", "Open shell here",
                                      G_CALLBACK(on_terminal_btn_clicked), s));
-        gtk_box_append(GTK_BOX(actions), make_icon_btn("document-edit-symbolic", "Show diff",
-                                                       G_CALLBACK(on_diff_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("media-playlist-shuffle-symbolic", "Fork session",
+                                                       G_CALLBACK(on_fork_btn_clicked), s));
         gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Close session",
                                                        G_CALLBACK(on_close_btn_clicked), s));
         /* Actions float on top of the row via GtkOverlay so they don't steal
@@ -1202,7 +1226,7 @@ sidebar_add_session(GtkWidget *split, Session *s)
     GtkWidget *row = make_row(s);
 
     if (s->parent_id != 0) {
-        /* insert after parent row and any existing siblings */
+        /* robot child: insert after parent row and any existing siblings */
         int pos = -1;
         for (int i = 0;; i++) {
             GtkListBoxRow *r = gtk_list_box_get_row_at_index(lb, i);
@@ -1210,6 +1234,20 @@ sidebar_add_session(GtkWidget *split, Session *s)
                 break;
             Session *rs = g_object_get_data(G_OBJECT(r), "gattn-session");
             if (rs && (rs->id == s->parent_id || rs->parent_id == s->parent_id))
+                pos = i + 1;
+        }
+        gtk_list_box_insert(lb, row, pos);
+    } else if (s->is_fork && s->fork_parent_id != 0) {
+        /* fork: insert after the parent row and any existing fork siblings */
+        int pos = -1;
+        for (int i = 0;; i++) {
+            GtkListBoxRow *r = gtk_list_box_get_row_at_index(lb, i);
+            if (!r)
+                break;
+            Session *rs = g_object_get_data(G_OBJECT(r), "gattn-session");
+            if (rs && (rs->id == s->fork_parent_id
+                       || (rs->is_fork && rs->fork_parent_id == s->fork_parent_id)
+                       || rs->parent_id == s->fork_parent_id))
                 pos = i + 1;
         }
         gtk_list_box_insert(lb, row, pos);
@@ -1264,7 +1302,7 @@ make_shortcut_bar(void)
     static const Hint nav[] = {
         { "^N", "New" },          { "^⇧W", "Close" },      { "M-j/k", "Next/Prev" },
         { "M-h/l", "Side/Term" }, { "^⇧A", "Unattended" }, { "^G", "Grid" },
-        { "^⇧D", "Diff" },        { "^F", "Search" },
+        { "^⇧K", "Fork" },        { "^F", "Search" },
     };
     static const Hint open[] = {
         { "^⇧R", "Resume session" }, { "^⇧O", "Open folder" }, { "^⇧T", "Open shell here" },
