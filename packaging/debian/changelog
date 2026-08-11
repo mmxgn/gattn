@@ -1,3 +1,11 @@
+gattn (0.2.0-1) unstable; urgency=medium
+
+  * Fork session: Fork button spawns a child Claude session inheriting the
+    parent's conversation context via --resume, shown as an indented child
+    in the sidebar. Persists across restarts. Shortcut: Ctrl+Shift+K.
+
+ -- mmxgn <etchourdakis@gmail.com>  Mon, 11 Aug 2026 00:00:00 +0000
+
 gattn (0.1.6-1) unstable; urgency=medium
 
   * Auto-name sessions (adjective-animal-N), sidebar row refactor with branch

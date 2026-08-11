@@ -1,4 +1,4 @@
-project('gattn', 'c', version: '0.1.6', default_options: ['c_std=c11'])
+project('gattn', 'c', version: '0.2.0', default_options: ['c_std=c11'])
 
 gnome = import('gnome')
 
