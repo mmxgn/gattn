@@ -830,12 +830,6 @@ on_terminal_btn_clicked(GtkButton *btn, gpointer data)
 }
 
 static void
-on_diff_btn_clicked(GtkButton *btn, gpointer data)
-{
-    sidebar_show_diff((Session *)data, GTK_WIDGET(btn));
-}
-
-static void
 on_fork_btn_clicked(GtkButton *btn, gpointer data)
 {
     Session   *s     = data;

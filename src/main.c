@@ -11,6 +11,7 @@
 #include "ui/sidebar.h"
 #include <adwaita.h>
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 #include <signal.h>
 #include <string.h>
 #include <vte/vte.h>
@@ -440,73 +441,44 @@ add_session_named(GtkWidget *split, const char *cmd, const char *working_dir,
 
 /* -- fork session -- */
 
-typedef struct {
-    Session      *parent;
-    GtkWidget    *split;
-    char        **existing; /* NULL-terminated snapshot of .jsonl files before /fork */
-    GFileMonitor *monitor;
-    guint         timeout_id;
-} ForkWatchCtx;
-
-static void add_fork_session(GtkWidget *split, Session *parent, const char *uuid);
-
 static void
-fork_watch_cleanup(ForkWatchCtx *ctx)
+add_fork_session(GtkWidget *split, Session *parent)
 {
-    if (ctx->timeout_id)
-        g_source_remove(ctx->timeout_id);
-    g_file_monitor_cancel(ctx->monitor);
-    g_object_unref(ctx->monitor);
-    g_strfreev(ctx->existing);
-    g_free(ctx);
-}
+    /* Find the most-recently-modified .jsonl in the parent's claude project dir.
+       The active session is writing to it, so it will always be the freshest. */
+    char cmd[256] = "claude";
 
-static void
-on_fork_dir_changed(GFileMonitor *monitor, GFile *file, GFile *other,
-                    GFileMonitorEvent event, gpointer data)
-{
-    (void)monitor;
-    (void)other;
-    ForkWatchCtx *ctx = data;
-    if (event != G_FILE_MONITOR_EVENT_CREATED)
-        return;
-    char *name = g_file_get_basename(file);
-    if (!g_str_has_suffix(name, ".jsonl")) {
-        g_free(name);
-        return;
-    }
-    for (int i = 0; ctx->existing && ctx->existing[i]; i++) {
-        if (strcmp(ctx->existing[i], name) == 0) {
-            g_free(name);
-            return; /* pre-existing file */
+    char *encoded = g_strdup(parent->cwd);
+    for (char *c = encoded; *c; c++)
+        if (*c == '/') *c = '-';
+    char *proj_dir = g_strdup_printf("%s/.claude/projects/%s",
+                                     g_get_home_dir(), encoded);
+    g_free(encoded);
+
+    GDir *dir = g_dir_open(proj_dir, 0, NULL);
+    if (dir) {
+        const char *entry;
+        char        best[64] = "";
+        time_t      best_mt  = 0;
+        while ((entry = g_dir_read_name(dir))) {
+            if (!g_str_has_suffix(entry, ".jsonl"))
+                continue;
+            char    *full = g_build_filename(proj_dir, entry, NULL);
+            GStatBuf st;
+            if (g_stat(full, &st) == 0 && st.st_mtime > best_mt) {
+                best_mt = st.st_mtime;
+                g_strlcpy(best, entry, sizeof(best));
+            }
+            g_free(full);
+        }
+        g_dir_close(dir);
+        if (best[0]) {
+            best[strlen(best) - 6] = '\0'; /* strip .jsonl */
+            g_snprintf(cmd, sizeof(cmd), "claude --resume %s", best);
         }
     }
-    char *uuid = g_strndup(name, strlen(name) - 6); /* strip .jsonl */
-    g_free(name);
+    g_free(proj_dir);
 
-    Session   *parent = ctx->parent;
-    GtkWidget *split  = ctx->split;
-    ctx->timeout_id   = 0; /* prevent double-remove in cleanup */
-    fork_watch_cleanup(ctx);
-
-    add_fork_session(split, parent, uuid);
-    g_free(uuid);
-}
-
-static gboolean
-on_fork_timeout(gpointer data)
-{
-    ForkWatchCtx *ctx   = data;
-    ctx->timeout_id     = 0;
-    fork_watch_cleanup(ctx);
-    return G_SOURCE_REMOVE;
-}
-
-static void
-add_fork_session(GtkWidget *split, Session *parent, const char *uuid)
-{
-    char cmd[192];
-    g_snprintf(cmd, sizeof(cmd), "claude --resume %s", uuid);
     Session *s = spawn_session(cmd, parent->cwd, NULL);
     if (!s)
         return;
@@ -519,56 +491,11 @@ add_fork_session(GtkWidget *split, Session *parent, const char *uuid)
 static void
 on_fork_session(GSimpleAction *a, GVariant *p, gpointer d)
 {
-    (void)a;
-    (void)p;
-    (void)d;
+    (void)a; (void)p; (void)d;
     Session *parent = selected_session();
-    if (!parent || !parent->cwd[0] || !parent->terminal)
+    if (!parent || !parent->cwd[0])
         return;
-
-    /* Encode cwd to locate the claude projects directory */
-    char *encoded = g_strdup(parent->cwd);
-    for (char *c = encoded; *c; c++)
-        if (*c == '/')
-            *c = '-';
-    char *proj_dir
-        = g_strdup_printf("%s/.claude/projects/%s", g_get_home_dir(), encoded);
-    g_free(encoded);
-
-    /* Snapshot existing .jsonl files */
-    GPtrArray *snap  = g_ptr_array_new_with_free_func(g_free);
-    GDir      *dir   = g_dir_open(proj_dir, 0, NULL);
-    if (dir) {
-        const char *entry;
-        while ((entry = g_dir_read_name(dir)))
-            if (g_str_has_suffix(entry, ".jsonl"))
-                g_ptr_array_add(snap, g_strdup(entry));
-        g_dir_close(dir);
-    }
-    g_ptr_array_add(snap, NULL);
-
-    /* Start monitoring before sending /fork so we don't miss a fast response */
-    GFile        *proj_gfile = g_file_new_for_path(proj_dir);
-    GFileMonitor *monitor
-        = g_file_monitor_directory(proj_gfile, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
-    g_object_unref(proj_gfile);
-    g_free(proj_dir);
-
-    if (!monitor) {
-        g_strfreev((char **)g_ptr_array_free(snap, FALSE));
-        return;
-    }
-
-    ForkWatchCtx *ctx  = g_new0(ForkWatchCtx, 1);
-    ctx->parent        = parent;
-    ctx->split         = app.split;
-    ctx->existing      = (char **)g_ptr_array_free(snap, FALSE);
-    ctx->monitor       = monitor;
-    ctx->timeout_id    = g_timeout_add_seconds(30, on_fork_timeout, ctx);
-    g_signal_connect(monitor, "changed", G_CALLBACK(on_fork_dir_changed), ctx);
-
-    /* Send /fork to the Claude terminal */
-    vte_terminal_feed_child(VTE_TERMINAL(parent->terminal), "/fork\n", -1);
+    add_fork_session(app.split, parent);
 }
 
 static inline void
