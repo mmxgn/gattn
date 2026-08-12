@@ -1,0 +1,4 @@
+# nix build symlink
+/result
+# tooling caches (pre-commit, etc.)
+/.cache/

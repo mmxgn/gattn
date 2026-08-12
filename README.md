@@ -81,6 +81,8 @@ Everything is reachable without a mouse:
 
 When a Claude session spawns sub-agents (parallel tasks), they appear indented under their parent in the sidebar with a robot icon. Their state dots follow the same colour scheme. Long executable paths are shortened to `/.../name` to keep the sidebar readable. Sub-agents that block on a question turn red, making it easy to spot which one needs a decision — use `Ctrl+Shift+A` to jump straight to it.
 
+Hovering a spawned process (a sub-agent, or any subprocess of a shell) reveals two buttons: terminate it gracefully (`SIGTERM`), or force-kill it (`SIGKILL`) when it will not go quietly. The row disappears once the process is gone.
+
 ## Install
 
 Grab the latest asset from the [releases page](https://github.com/mmxgn/gattn/releases/latest).

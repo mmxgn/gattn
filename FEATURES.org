@@ -26,7 +26,10 @@ VTE regex on URLs (http/https/ftp/file/www.) and absolute paths; hover shows poi
 * TODO I want, in the Diff menu, to have a top "bar" with 1) the current commit message, (or uncommited on unstaged) but also some transport-like buttons (e.g. << >> ) that let me navigate (and ask questions and use) previous commits in the history.
 * TODO Add an icon for when claude is compacting discussion
 * TODO I want to be able to open ssh sessions/w claude to a machine in the same way. Add support for remote claude sessions with the same/or as similar as possible functionality without sacrificing too much performance (maybe a remote session should have a different icon)
-* TODO Sub-agents should be killed
+* DONE Sub-agents should be killed
+Child-process rows (parent_id != 0) get two hover-revealed buttons in make_row:
+edit-delete-symbolic sends SIGKILL, window-close-symbolic sends SIGTERM. The row
+is torn down by the existing poll_children -> on_child_exited path.
 * TODO Hooks for Claude for getting things such as information about agents
 * TODO New session / open session functionality lets you type in paths directly
 Could be emacs like, like ~/claude:~ opens a claude session, or ~/ssh:~ opens an ssh session
