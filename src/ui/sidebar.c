@@ -848,6 +848,28 @@ on_close_btn_clicked(GtkButton *btn, gpointer data)
         kill(s->pid, SIGHUP);
 }
 
+/* Child-row buttons: graceful first, unblockable second. The row itself is torn
+   down by poll_children noticing the PID is gone, so there's nothing to clean up
+   here. */
+
+static void
+on_stop_btn_clicked(GtkButton *btn, gpointer data)
+{
+    (void)btn;
+    Session *s = data;
+    if (s->pid > 0)
+        kill(s->pid, SIGTERM);
+}
+
+static void
+on_kill_btn_clicked(GtkButton *btn, gpointer data)
+{
+    (void)btn;
+    Session *s = data;
+    if (s->pid > 0)
+        kill(s->pid, SIGKILL);
+}
+
 /* -- row builder -- */
 
 static GtkWidget *
@@ -975,28 +997,35 @@ make_row(Session *s)
         gtk_box_append(GTK_BOX(box), labels);
     }
 
-    GtkWidget *actions = NULL;
-    GtkWidget *content = box;
-    if (!s->parent_id) {
-        actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    if (s->parent_id) {
+        /* Spawned process: only the two ways to end it. edit-delete-symbolic is a
+           circled X; process-stop-symbolic would be a bare X, indistinguishable
+           from the terminate button sitting next to it. */
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("edit-delete-symbolic", "Force kill process",
+                                                       G_CALLBACK(on_kill_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Terminate process",
+                                                       G_CALLBACK(on_stop_btn_clicked), s));
+    } else {
         gtk_box_append(GTK_BOX(actions), make_icon_btn("folder-open-symbolic", "Open folder",
                                                        G_CALLBACK(on_folder_btn_clicked), s));
         gtk_box_append(GTK_BOX(actions),
                        make_icon_btn("utilities-terminal-symbolic", "Open shell here",
                                      G_CALLBACK(on_terminal_btn_clicked), s));
-        gtk_box_append(GTK_BOX(actions), make_icon_btn("media-playlist-shuffle-symbolic", "Fork session",
-                                                       G_CALLBACK(on_fork_btn_clicked), s));
+        gtk_box_append(GTK_BOX(actions),
+                       make_icon_btn("media-playlist-shuffle-symbolic", "Fork session",
+                                     G_CALLBACK(on_fork_btn_clicked), s));
         gtk_box_append(GTK_BOX(actions), make_icon_btn("window-close-symbolic", "Close session",
                                                        G_CALLBACK(on_close_btn_clicked), s));
-        /* Actions float on top of the row via GtkOverlay so they don't steal
-           horizontal space from the labels. Hover fades them in over the branch. */
-        gtk_widget_set_halign(actions, GTK_ALIGN_END);
-        gtk_widget_set_valign(actions, GTK_ALIGN_CENTER);
-        gtk_widget_set_margin_end(actions, 4);
-        content = gtk_overlay_new();
-        gtk_overlay_set_child(GTK_OVERLAY(content), box);
-        gtk_overlay_add_overlay(GTK_OVERLAY(content), actions);
     }
+    /* Actions float on top of the row via GtkOverlay so they don't steal
+       horizontal space from the labels. Hover fades them in over the branch. */
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    gtk_widget_set_valign(actions, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_end(actions, 4);
+    GtkWidget *content = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(content), box);
+    gtk_overlay_add_overlay(GTK_OVERLAY(content), actions);
 
     GtkWidget *row = gtk_list_box_row_new();
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), content);
@@ -1011,7 +1040,8 @@ make_row(Session *s)
     g_object_set_data(G_OBJECT(row), "gattn-row-cwd", s->cwd_label);
     g_object_set_data(G_OBJECT(row), "gattn-row-branch-sep", s->branch_sep);
     g_object_set_data(G_OBJECT(row), "gattn-row-branch", s->branch_label);
-    g_object_set_data(G_OBJECT(row), "gattn-row-labels", labels);
+    /* Robot rows have no vbox, so the name label itself is what gets pushed in. */
+    g_object_set_data(G_OBJECT(row), "gattn-row-labels", labels ? labels : name_lbl);
     session_refresh_a11y(s);
 
     /* Hover / focus reveal for the action buttons: hidden by default. */
@@ -1123,10 +1153,13 @@ apply_row_visibility(GtkListBoxRow *row)
     }
 
     /* Push the labels' trailing edge in when actions are revealed so the name
-       ellipsizes before it slides under the icons. 4 icons ~32 px each + margin. */
+       ellipsizes before it slides under the icons. ~32 px per icon + margin;
+       child rows carry 2 buttons, top-level rows 4. */
     GtkWidget *labels = g_object_get_data(G_OBJECT(row), "gattn-row-labels");
-    if (labels)
-        gtk_widget_set_margin_end(labels, hover_or_focus ? 136 : 0);
+    if (labels) {
+        int push = (s && s->parent_id) ? 72 : 136;
+        gtk_widget_set_margin_end(labels, hover_or_focus ? push : 0);
+    }
 }
 
 static void
@@ -1239,9 +1272,10 @@ sidebar_add_session(GtkWidget *split, Session *s)
             if (!r)
                 break;
             Session *rs = g_object_get_data(G_OBJECT(r), "gattn-session");
-            if (rs && (rs->id == s->fork_parent_id
-                       || (rs->is_fork && rs->fork_parent_id == s->fork_parent_id)
-                       || rs->parent_id == s->fork_parent_id))
+            if (rs
+                && (rs->id == s->fork_parent_id
+                    || (rs->is_fork && rs->fork_parent_id == s->fork_parent_id)
+                    || rs->parent_id == s->fork_parent_id))
                 pos = i + 1;
         }
         gtk_list_box_insert(lb, row, pos);

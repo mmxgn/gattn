@@ -18,9 +18,10 @@ Launch `./build/gattn` from another shell. With Orca on:
   Expected: `<name>, <state>, <cwd-basename>` per row.
 - **State-change**: kick a claude session; when it stops working, Orca
   should say `<name> needs input` even without focus.
-- **Icon buttons**: Tab into the row's inline buttons. Tooltips
-  (`Open folder`, `Open shell here`, `Show diff`, `Close session`)
-  should be spoken.
+- **Icon buttons**: Tab into the row's inline buttons. Tooltips should be
+  spoken. Session rows: `Open folder`, `Open shell here`, `Fork session`,
+  `Close session`. Spawned-process rows: `Force kill process`,
+  `Terminate process`.
 - **Search bar**: `Ctrl+F`, type — placeholder + echoes should be spoken.
 
 ## 3. Keyboard-only
