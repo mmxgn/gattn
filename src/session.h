@@ -15,8 +15,10 @@ typedef void (*SessionChildSpawnedFn)(int child_pid, int parent_id, gpointer dat
 
 struct Session {
     int          id;
-    int          parent_id; /* 0 = top-level */
-    gboolean     is_robot;  /* child of an agent session */
+    int          parent_id;    /* 0 = top-level */
+    gboolean     is_robot;     /* child of an agent session */
+    gboolean     is_subagent;  /* claude Agent-tool subagent: transcript-only, no pid */
+    char         agent_id[24]; /* subagent id from the transcript; empty otherwise */
     char         name[64];
     char         cmd[128];
     char         cwd[256];

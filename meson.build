@@ -23,6 +23,7 @@ executable('gattn', [
   'src/main.c',
   'src/session.c',
   'src/state_detector.c',
+  'src/subagents.c',
   'src/notify.c',
   'src/recents.c',
   'src/prefs_store.c',
@@ -32,3 +33,7 @@ executable('gattn', [
   'src/ui/grid.c',
   'src/ui/session_picker.c',
 ], dependencies: deps, install: true)
+
+test('subagents', executable('test-subagents',
+  ['src/subagents.c', 'src/test_subagents.c'],
+  dependencies: [dependency('glib-2.0')]))
