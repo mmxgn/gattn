@@ -5,6 +5,7 @@
 #include "session.h"
 #include "sessions_store.h"
 #include "state_detector.h"
+#include "subagents.h"
 #include "ui/grid.h"
 #include "ui/prefs.h"
 #include "ui/session_picker.h"
@@ -354,6 +355,76 @@ on_child_exited(int child_pid, int parent_id, gpointer data)
     }
 }
 
+/* -- claude subagent rows --
+
+   Agent-tool subagents run inside the claude process, so poll_children never sees
+   them. They are read out of the session transcript instead and rendered as pid-less
+   robot rows captioned with what the subagent was asked to do. */
+
+static Session *
+find_subagent(int parent_id, const char *agent_id)
+{
+    for (int i = 0; i < sessions.count; i++) {
+        Session *s = sessions.items[i];
+        if (s && s->is_subagent && s->parent_id == parent_id
+            && g_strcmp0(s->agent_id, agent_id) == 0)
+            return s;
+    }
+    return NULL;
+}
+
+static gboolean
+poll_subagents(gpointer data)
+{
+    (void)data;
+    for (int i = 0; i < sessions.count; i++) {
+        Session *s = sessions.items[i];
+        if (!s || s->parent_id || !s->cwd[0])
+            continue;
+        if (g_ascii_strncasecmp(s->name, "claude", 6) != 0
+            && g_ascii_strncasecmp(s->cmd, "claude", 6) != 0)
+            continue;
+
+        Subagent running[16];
+        int      n = subagents_scan(s->cwd, running, (int)G_N_ELEMENTS(running));
+
+        for (int k = 0; k < n; k++) {
+            if (find_subagent(s->id, running[k].id))
+                continue;
+            Session *sa
+                = session_create(&sessions, running[k].desc[0] ? running[k].desc : running[k].type);
+            if (!sa)
+                continue;
+            sa->parent_id   = s->id;
+            sa->is_robot    = TRUE;
+            sa->is_subagent = TRUE;
+            sa->terminal    = s->terminal;
+            g_strlcpy(sa->agent_id, running[k].id, sizeof(sa->agent_id));
+            g_strlcpy(sa->cwd, s->cwd, sizeof(sa->cwd));
+            /* Robot rows use ->cmd as their tooltip, so the full caption goes there. */
+            g_snprintf(sa->cmd, sizeof(sa->cmd), "%s subagent: %s", running[k].type,
+                       running[k].desc);
+            sidebar_add_session(app.split, sa);
+            session_set_state(sa, SESSION_WORKING);
+        }
+
+        for (int j = 0; j < sessions.count; j++) {
+            Session *sa = sessions.items[j];
+            if (!sa || !sa->is_subagent || sa->parent_id != s->id)
+                continue;
+            gboolean live = FALSE;
+            for (int k = 0; k < n && !live; k++)
+                live = g_strcmp0(sa->agent_id, running[k].id) == 0;
+            if (!live) {
+                int id = sa->id;
+                sidebar_remove_session(app.split, id);
+                session_destroy(&sessions, id);
+            }
+        }
+    }
+    return G_SOURCE_CONTINUE;
+}
+
 /* -- session cleanup (fires after session.c's own child-exited handler) -- */
 
 static void
@@ -450,9 +521,9 @@ add_fork_session(GtkWidget *split, Session *parent)
 
     char *encoded = g_strdup(parent->cwd);
     for (char *c = encoded; *c; c++)
-        if (*c == '/') *c = '-';
-    char *proj_dir = g_strdup_printf("%s/.claude/projects/%s",
-                                     g_get_home_dir(), encoded);
+        if (*c == '/')
+            *c = '-';
+    char *proj_dir = g_strdup_printf("%s/.claude/projects/%s", g_get_home_dir(), encoded);
     g_free(encoded);
 
     GDir *dir = g_dir_open(proj_dir, 0, NULL);
@@ -491,7 +562,9 @@ add_fork_session(GtkWidget *split, Session *parent)
 static void
 on_fork_session(GSimpleAction *a, GVariant *p, gpointer d)
 {
-    (void)a; (void)p; (void)d;
+    (void)a;
+    (void)p;
+    (void)d;
     Session *parent = selected_session();
     if (!parent || !parent->cwd[0])
         return;
@@ -548,8 +621,8 @@ on_session_picked(const char *cmd, const char *dir, gpointer data)
         }
         if (!parent)
             continue;
-        Session *fork_s = spawn_session(saved[i].cmd, saved[i].dir,
-                                        saved[i].name[0] ? saved[i].name : NULL);
+        Session *fork_s
+            = spawn_session(saved[i].cmd, saved[i].dir, saved[i].name[0] ? saved[i].name : NULL);
         if (!fork_s)
             continue;
         fork_s->is_fork        = TRUE;
@@ -894,6 +967,7 @@ on_activate(AdwApplication *app_obj, gpointer data)
     app.split = sidebar_new(&sessions, on_new_session, NULL);
     sidebar_set_fork_fn(app.split, on_fork_requested, NULL);
     sidebar_set_shell_here(app.split, on_shell_here, NULL);
+    g_timeout_add_seconds(2, poll_subagents, NULL);
     app.zoom_label = GTK_LABEL(g_object_get_data(G_OBJECT(app.split), "gattn-zoom-label"));
 
     AdwHeaderBar *content_hdr = g_object_get_data(G_OBJECT(app.split), "gattn-content-header");

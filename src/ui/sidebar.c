@@ -998,7 +998,10 @@ make_row(Session *s)
     }
 
     GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    if (s->parent_id) {
+    if (s->is_subagent) {
+        /* Nothing to kill: subagents run inside the claude process, no pid of
+           their own. The row disappears when the subagent reports back. */
+    } else if (s->parent_id) {
         /* Spawned process: only the two ways to end it. edit-delete-symbolic is a
            circled X; process-stop-symbolic would be a bare X, indistinguishable
            from the terminate button sitting next to it. */
